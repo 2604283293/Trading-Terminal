@@ -1,9 +1,16 @@
 [project]
 name = "tt-shared"
 version = "0.1.0"
-description = "Trading Terminal 共享数据服务 — FastAPI 聚合 TDX/Tushare/AkShare"
+description = "Trading Terminal 共享数据服务 — FastAPI 聚合 TDX/Tushare/AkShare/韭研公社等数据源"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2",
+    "httpx",
+    "selectolax",
+    "apscheduler",
+]
 
 [build-system]
 requires = ["hatchling"]

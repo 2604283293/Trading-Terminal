@@ -39,3 +39,7 @@ venv/
 # Misc
 tmp/
 *.bak
+
+# Local scratchpads
+tmp_*.html
+*_inspect.html
