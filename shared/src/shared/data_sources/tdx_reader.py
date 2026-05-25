@@ -24,7 +24,9 @@ import pandas as pd
 _MINUTE_EPOCH = DateType(1900, 1, 1)
 
 # vipdoc 解压后的根目录
-_VIPDOC_ROOT = Path(__file__).resolve().parents[4] / "vipdoc"
+# shared/src/shared/data_sources/tdx_reader.py → parents[4] = project root
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_VIPDOC_ROOT = _PROJECT_ROOT / "vipdoc"
 
 _PERIOD_EXT = {"daily": "lday", "5min": "minline", "1min": "minline"}
 _PERIOD_SUFFIX = {"daily": ".day", "5min": ".lc5", "1min": ".lc1"}

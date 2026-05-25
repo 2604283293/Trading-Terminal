@@ -1,13 +1,11 @@
 [project]
 name = "tt-graphical-trading"
 version = "0.1.0"
-description = "图形交易模块 — K 线、指标、画线"
+description = "选股筛选器 — 自定义条件扫描全 A 股日线数据"
 requires-python = ">=3.11"
 dependencies = [
     "pyside6",
-    "pyqtgraph",
     "pandas",
-    "numpy",
 ]
 
 [build-system]

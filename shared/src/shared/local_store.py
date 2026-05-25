@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pandas as pd
 
-_DATA_ROOT = Path(__file__).resolve().parents[4] / "data"
+# shared/src/shared/local_store.py → parents[3] = project root
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DATA_ROOT = _PROJECT_ROOT / "data"
 
 ACTIONS_COLUMNS = ["date", "source", "theme", "theme_id", "stock_count", "summary"]
 STOCKS_COLUMNS = [
