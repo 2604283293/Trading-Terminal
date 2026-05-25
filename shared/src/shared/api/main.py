@@ -14,8 +14,15 @@ from shared.data_sources import ActionItem, JiuyangongsheSource
 from shared.storage.db import get_session
 from shared.storage.models import ActionItemORM
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("shared-api.log", encoding="utf-8"),
+    ],
+)
 log = logging.getLogger("shared.api")
-logging.basicConfig(level=logging.INFO)
 
 SOURCES = {
     "jiuyangongshe": JiuyangongsheSource(),
