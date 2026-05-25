@@ -1,0 +1,13 @@
+[project]
+name = "tt-sector-trading"
+version = "0.1.0"
+description = "板块交易模块 — 板块涨跌、概念股、资金流"
+requires-python = ">=3.11"
+dependencies = [
+    "pyside6",
+    "pandas",
+    "httpx",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,13 @@
+[project]
+name = "tt-desktop-shell"
+version = "0.1.0"
+description = "Trading Terminal 桌面主程序 — PySide6 壳子，承载三个业务模块"
+requires-python = ">=3.11"
+dependencies = [
+    "pyside6",
+    "PyQt-Fluent-Widgets[full]",
+    "httpx",
+]
+
+[tool.uv]
+package = false

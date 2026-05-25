@@ -1,0 +1,23 @@
+[project]
+name = "tt-shared"
+version = "0.1.0"
+description = "Trading Terminal 共享数据服务 — FastAPI 聚合 TDX/Tushare/AkShare"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
+    "apscheduler",
+    "sqlalchemy>=2",
+    "httpx",
+    "pyarrow",
+    "pandas",
+    "mootdx",
+    "tushare",
+    "akshare",
+    "feedparser",
+    "selectolax",
+]
+
+[tool.uv]
+package = false
