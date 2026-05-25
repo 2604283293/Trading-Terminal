@@ -39,6 +39,9 @@ venv/
 # TDX local data (large binary files)
 vipdoc/
 
+# Local scraped data (Parquet files)
+data/
+
 # Misc
 tmp/
 *.bak

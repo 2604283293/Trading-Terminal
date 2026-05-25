@@ -94,12 +94,9 @@ class DateAxis(pg.AxisItem):
 class GraphicalTradingWidget(QWidget):
     def __init__(self):
         super().__init__()
-        print("[graph] GraphicalTradingWidget.__init__")
         self._current_df: pd.DataFrame | None = None
         self._build_ui()
-        # 延迟加载代码列表（不阻塞 UI 启动）
         QTimer.singleShot(50, self._init_code_list)
-        print("[graph] _build_ui done")
 
     def _build_ui(self):
         layout = QVBoxLayout(self)

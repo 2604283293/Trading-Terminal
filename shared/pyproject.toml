@@ -10,6 +10,11 @@ dependencies = [
     "httpx",
     "selectolax",
     "apscheduler",
+    "selenium>=4.6",
+    "beautifulsoup4",
+    "lxml",
+    "pyarrow",
+    "pywin32",
 ]
 
 [build-system]

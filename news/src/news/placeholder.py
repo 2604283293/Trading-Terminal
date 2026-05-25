@@ -1,25 +1,26 @@
+"""资讯流 — 阅读本地 Parquet 数据，展示异动主题资讯。"""
 from __future__ import annotations
 
-import httpx
-from PySide6.QtCore import Qt, QTimer
+from datetime import date as DateType
+
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
-API_URL = "http://127.0.0.1:8000"
+from shared.local_store import has_today_data, load_actions
 
 
 class NewsWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
-        QTimer.singleShot(100, self._refresh)
+        self._refresh()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -31,9 +32,6 @@ class NewsWidget(QWidget):
         self.title.setStyleSheet("font-size: 18px; font-weight: bold;")
         toolbar.addWidget(self.title)
         toolbar.addStretch()
-        self.refresh_btn = QPushButton("刷新")
-        self.refresh_btn.clicked.connect(self._refresh)
-        toolbar.addWidget(self.refresh_btn)
         layout.addLayout(toolbar)
 
         scroll = QScrollArea()
@@ -53,33 +51,26 @@ class NewsWidget(QWidget):
                 child.widget().deleteLater()
 
     def _refresh(self):
-        print("[news] _refresh called")
         self._clear_content()
-        try:
-            print("[news] httpx.get starting...")
-            response = httpx.get(f"{API_URL}/actions", timeout=5.0)
-            print("[news] httpx.get returned")
-            response.raise_for_status()
-            items = response.json()
-        except Exception as e:
+        today = DateType.today()
+
+        if not has_today_data(today):
             self._show_message(
-                f"⚠ 无法连接数据服务（{API_URL}）\n\n{type(e).__name__}: {e}\n\n"
-                "请先启动数据服务：双击仓库根目录的 run-shared.bat"
+                "暂无资讯。\n\n请先在『板块交易』页点击『抓取今日』触发数据拉取。"
             )
             return
 
-        items = [it for it in items if it.get("summary")]
+        df = load_actions(today)
+        items = [row for _, row in df.iterrows() if row["summary"]]
         if not items:
-            self._show_message(
-                "暂无资讯。先在『板块交易』页点『抓取今日』触发数据拉取。"
-            )
+            self._show_message("暂无资讯。先点击板块交易页『抓取今日』触发数据拉取。")
             return
 
-        self.title.setText(f"资讯流 · {items[0]['date']} · {len(items)} 条")
+        self.title.setText(f"资讯流 · {today.isoformat()} · {len(items)} 条")
         for item in items:
             self._content_layout.addWidget(self._make_entry(item))
 
-    def _make_entry(self, item: dict) -> QFrame:
+    def _make_entry(self, item) -> QFrame:
         entry = QFrame()
         entry.setStyleSheet(
             "QFrame { background: transparent; border-bottom: 1px solid #eee; "
@@ -91,10 +82,10 @@ class NewsWidget(QWidget):
 
         meta = QLabel(
             f"<span style='color:#d83a3a; font-weight:bold;'>{item['theme']}</span>"
-            f" <span style='color:#999;'>·</span> "
+            f" <span style='color:#999;'>-</span> "
             f"<span style='color:#666;'>{item['stock_count']} 只异动</span>"
-            f" <span style='color:#999;'>·</span> "
-            f"<span style='color:#999; font-size:11px;'>{item['source']} · {item['date']}</span>"
+            f" <span style='color:#999;'>-</span> "
+            f"<span style='color:#999; font-size:11px;'>jiuyangongshe - {item['date']}</span>"
         )
         meta.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(meta)
