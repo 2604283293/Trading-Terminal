@@ -69,6 +69,11 @@ CONDITION_TYPES: dict[str, dict] = {
         "params": {"direction": "up", "min_pct": 1.0},
         "hint": "今日最低价 > 昨日最高价(向上)/今日最高价 < 昨日最低价(向下)，min_pct 为缺口幅度下限",
     },
+    "engulfing": {
+        "label": "K线反包",
+        "params": {"direction": "bullish"},
+        "hint": "看涨反包：昨阴今阳，今日实体完全吞没昨日实体；看跌反包反之。direction: bullish|bearish",
+    },
 }
 
 
@@ -76,29 +81,28 @@ def _read_daily_raw(path: Path) -> pd.DataFrame | None:
     """快速读取 .day 文件为 DataFrame，不做任何验证。"""
     try:
         data = path.read_bytes()
+        n = len(data) // 32
+        if n == 0:
+            return None
+        records = []
+        for i in range(n):
+            rec = data[i * 32 : (i + 1) * 32]
+            date_int, op, hi, lo, cl, amt, vol, _res = struct.unpack("=I I I I I f I I", rec)
+            records.append({
+                "date": date_int,
+                "open": op / 100.0,
+                "high": hi / 100.0,
+                "low": lo / 100.0,
+                "close": cl / 100.0,
+                "amount": amt,
+                "volume": vol,
+            })
+        df = pd.DataFrame(records)
+        df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d", errors="coerce")
+        df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+        return df
     except Exception:
         return None
-    n = len(data) // 32
-    if n == 0:
-        return None
-    records = []
-    for i in range(n):
-        rec = data[i * 32 : (i + 1) * 32]
-        date_int, op, hi, lo, cl, amt, vol, _res = struct.unpack("=I I I I I f I I", rec)
-        records.append({
-            "date": date_int,
-            "open": op / 100.0,
-            "high": hi / 100.0,
-            "low": lo / 100.0,
-            "close": cl / 100.0,
-            "amount": amt,
-            "volume": vol,
-        })
-    df = pd.DataFrame(records)
-    # 过滤非法日期
-    df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d", errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-    return df
 
 
 def _check_condition(df: pd.DataFrame, cond: dict) -> bool:
@@ -209,6 +213,23 @@ def _check_condition(df: pd.DataFrame, cond: dict) -> bool:
                 return False
             gap_pct = (yesterday["low"] - today["high"]) / yesterday["low"] * 100
             return gap_pct >= min_pct
+
+    elif ctype == "engulfing":
+        direction = params.get("direction", "bullish")
+        yest_open = yesterday["open"]
+        yest_close = yesterday["close"]
+        today_open = today["open"]
+        today_close = today["close"]
+        if direction == "bullish":
+            # 昨阴线(收盘<开盘) + 今阳线(收盘>开盘) + 今日实体完全吞没昨日实体
+            if not (yest_close < yest_open and today_close > today_open):
+                return False
+            return today_open <= yest_close and today_close >= yest_open
+        else:
+            # 昨阳线(收盘>开盘) + 今阴线(收盘<开盘) + 今日实体完全吞没昨日实体
+            if not (yest_close > yest_open and today_close < today_open):
+                return False
+            return today_open >= yest_close and today_close <= yest_open
 
     return False
 
