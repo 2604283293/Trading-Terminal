@@ -36,6 +36,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 
+# TDX local data (large binary files)
+vipdoc/
+
 # Misc
 tmp/
 *.bak
