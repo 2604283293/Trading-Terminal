@@ -45,7 +45,7 @@ class JiuyangongsheSource:
         url = f"{self.base_url}/action/{target_date.isoformat()}"
         with httpx.Client(
             headers={"User-Agent": _USER_AGENT},
-            timeout=20.0,
+            timeout=httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=10.0),
             follow_redirects=True,
         ) as client:
             response = client.get(url)

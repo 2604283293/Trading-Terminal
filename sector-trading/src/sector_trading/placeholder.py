@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import httpx
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -15,9 +15,26 @@ from PySide6.QtWidgets import (
 API_URL = "http://127.0.0.1:8000"
 
 
+class _ScrapeWorker(QObject):
+    finished = Signal(dict)
+
+    def __init__(self, url: str):
+        super().__init__()
+        self._url = url
+
+    def run(self) -> None:
+        try:
+            response = httpx.post(self._url, timeout=120.0)
+            response.raise_for_status()
+            self.finished.emit({"ok": True, "data": response.json()})
+        except Exception as e:
+            self.finished.emit({"ok": False, "error": f"{type(e).__name__}: {e}"})
+
+
 class SectorTradingWidget(QWidget):
     def __init__(self):
         super().__init__()
+        self._scrape_thread: QThread | None = None
         self._build_ui()
         self._refresh()
 
@@ -31,6 +48,10 @@ class SectorTradingWidget(QWidget):
         self.title.setStyleSheet("font-size: 18px; font-weight: bold;")
         toolbar.addWidget(self.title)
         toolbar.addStretch()
+
+        self.status = QLabel("")
+        self.status.setStyleSheet("color: #888; font-size: 12px;")
+        toolbar.addWidget(self.status)
 
         self.scrape_btn = QPushButton("抓取今日")
         self.scrape_btn.clicked.connect(self._scrape)
@@ -81,22 +102,44 @@ class SectorTradingWidget(QWidget):
             self._content_layout.addWidget(self._make_card(item))
 
     def _scrape(self):
+        if self._scrape_thread is not None:
+            return
         self.scrape_btn.setEnabled(False)
         self.scrape_btn.setText("抓取中…")
-        try:
-            response = httpx.post(f"{API_URL}/actions/scrape", timeout=30.0)
-            response.raise_for_status()
-            result = response.json()
-            self._show_message(
-                f"✓ 抓取完成：{result['date']} · {result['scraped']} 条\n\n"
-                + ("\n".join(result["errors"]) if result.get("errors") else "无错误")
-            )
+        self.status.setText("正在抓取上游数据…")
+
+        self._scrape_thread = QThread()
+        worker = _ScrapeWorker(f"{API_URL}/actions/scrape")
+        worker.moveToThread(self._scrape_thread)
+        self._scrape_thread.started.connect(worker.run)
+        worker.finished.connect(self._on_scrape_done)
+        worker.finished.connect(self._scrape_thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        self._scrape_thread.finished.connect(self._scrape_thread.deleteLater)
+        self._scrape_worker = worker
+        self._scrape_thread.start()
+
+    def _on_scrape_done(self, result: dict):
+        self.scrape_btn.setEnabled(True)
+        self.scrape_btn.setText("抓取今日")
+        self._scrape_thread = None
+        self._scrape_worker = None
+
+        if result["ok"]:
+            data = result["data"]
+            errs = data.get("errors") or []
+            if errs:
+                self.status.setText(f"⚠ 抓取部分失败：{len(errs)} 个源出错")
+            else:
+                self.status.setText(f"✓ 抓取完成：{data['scraped']} 条")
             self._refresh()
-        except Exception as e:
-            self._show_message(f"⚠ 抓取失败：{type(e).__name__}: {e}")
-        finally:
-            self.scrape_btn.setEnabled(True)
-            self.scrape_btn.setText("抓取今日")
+        else:
+            self.status.setText("⚠ 抓取失败")
+            self._show_message(
+                f"⚠ 抓取失败：\n\n{result['error']}\n\n"
+                "可能原因：① VPN 走海外路由导致访问韭研公社很慢；"
+                "建议切到「绕过中国大陆」规则模式或临时关闭 VPN。"
+            )
 
     def _make_card(self, item: dict) -> QFrame:
         card = QFrame()
