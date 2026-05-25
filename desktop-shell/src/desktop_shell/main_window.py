@@ -1,0 +1,21 @@
+from PySide6.QtWidgets import QMainWindow, QTabWidget
+
+from graphical_trading import GraphicalTradingWidget
+from news import NewsWidget
+from sector_trading import SectorTradingWidget
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Trading Terminal")
+        self.resize(1280, 800)
+
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.addTab(GraphicalTradingWidget(), "图形交易")
+        tabs.addTab(SectorTradingWidget(), "板块交易")
+        tabs.addTab(NewsWidget(), "资讯")
+        self.setCentralWidget(tabs)
+
+        self.statusBar().showMessage("就绪 — 数据服务尚未启动（图表使用模拟数据）")
