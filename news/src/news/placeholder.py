@@ -19,7 +19,7 @@ class NewsWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
-        QTimer.singleShot(0, self._refresh)
+        QTimer.singleShot(100, self._refresh)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -53,9 +53,12 @@ class NewsWidget(QWidget):
                 child.widget().deleteLater()
 
     def _refresh(self):
+        print("[news] _refresh called")
         self._clear_content()
         try:
+            print("[news] httpx.get starting...")
             response = httpx.get(f"{API_URL}/actions", timeout=5.0)
+            print("[news] httpx.get returned")
             response.raise_for_status()
             items = response.json()
         except Exception as e:

@@ -36,8 +36,7 @@ class SectorTradingWidget(QWidget):
         super().__init__()
         self._scrape_thread: QThread | None = None
         self._build_ui()
-        # 延迟首次刷新到事件循环启动之后，避免在 __init__ 里阻塞 Qt
-        QTimer.singleShot(0, self._refresh)
+        QTimer.singleShot(100, self._refresh)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -80,9 +79,12 @@ class SectorTradingWidget(QWidget):
                 child.widget().deleteLater()
 
     def _refresh(self):
+        print("[sector] _refresh called")
         self._clear_content()
         try:
+            print("[sector] httpx.get starting...")
             response = httpx.get(f"{API_URL}/actions", timeout=5.0)
+            print("[sector] httpx.get returned")
             response.raise_for_status()
             items = response.json()
         except Exception as e:

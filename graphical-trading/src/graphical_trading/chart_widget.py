@@ -84,8 +84,10 @@ class DateAxis(pg.AxisItem):
 class GraphicalTradingWidget(QWidget):
     def __init__(self):
         super().__init__()
+        print("[graph] GraphicalTradingWidget.__init__")
         self._build_ui()
         self._draw_chart()
+        print("[graph] _draw_chart done")
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
