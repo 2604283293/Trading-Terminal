@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import httpx
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -19,7 +19,7 @@ class NewsWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
-        self._refresh()
+        QTimer.singleShot(0, self._refresh)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)

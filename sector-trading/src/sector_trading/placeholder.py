@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import httpx
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -36,7 +36,8 @@ class SectorTradingWidget(QWidget):
         super().__init__()
         self._scrape_thread: QThread | None = None
         self._build_ui()
-        self._refresh()
+        # 延迟首次刷新到事件循环启动之后，避免在 __init__ 里阻塞 Qt
+        QTimer.singleShot(0, self._refresh)
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
