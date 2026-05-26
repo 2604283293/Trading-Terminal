@@ -1,7 +1,7 @@
 """选股筛选器 — 自定义条件扫描全部 A 股日线数据。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date as DateType, datetime
 
 from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtWidgets import (
@@ -85,9 +85,10 @@ class _ScanThread(QThread):
     error = Signal(str)
     log_msg = Signal(str)
 
-    def __init__(self, conditions: list[dict]):
+    def __init__(self, conditions: list[dict], as_of_date: DateType | None = None):
         super().__init__()
         self._conditions = conditions
+        self._as_of_date = as_of_date
 
     def run(self) -> None:
         try:
@@ -97,6 +98,8 @@ class _ScanThread(QThread):
                 if (d := _VIPDOC / mkt / "lday").exists()
             )
             self.log_msg.emit(f"数据目录: {_VIPDOC}, 共 {total_files} 个 .day 文件")
+            if self._as_of_date:
+                self.log_msg.emit(f"历史回溯模式, 截止日期: {self._as_of_date.isoformat()}")
             self.log_msg.emit(f"条件: {self._conditions}")
             last_pct = -1
             def on_progress(cur: int, total: int, code: str):
@@ -107,7 +110,8 @@ class _ScanThread(QThread):
                     self.log_msg.emit(f"进度: {cur}/{total} ({pct}%)")
                     self.progress.emit(cur, total, code)
 
-            results = run_screen(self._conditions, on_progress=on_progress)
+            results = run_screen(self._conditions, on_progress=on_progress,
+                                as_of_date=self._as_of_date)
             self.log_msg.emit(f"扫描完毕，匹配 {len(results)} 只")
             self.finished.emit(results)
         except Exception as exc:
@@ -122,7 +126,13 @@ class GraphicalTradingWidget(QWidget):
         self._scan_thread: QThread | None = None
         self._condition_widgets: list[dict] = []
         self._results: list = []
+        self._scan_date: DateType | None = None
         self._build_ui()
+
+    def set_date(self, date: DateType) -> None:
+        """切换扫描日期（由主窗口日期选择器调用）。"""
+        self._scan_date = date
+        self._log(f"扫描日期切换至: {date.isoformat()}")
 
     def _log(self, msg: str):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -461,7 +471,7 @@ class GraphicalTradingWidget(QWidget):
         self._table.setRowCount(0)
         self._results = []
 
-        self._scan_thread = _ScanThread(conditions)
+        self._scan_thread = _ScanThread(conditions, as_of_date=self._scan_date)
         self._scan_thread.log_msg.connect(self._log)
         self._scan_thread.progress.connect(self._on_progress)
         self._scan_thread.finished.connect(self._on_scan_done)

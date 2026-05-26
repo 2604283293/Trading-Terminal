@@ -19,7 +19,13 @@ from shared.local_store import has_today_data, load_actions
 class NewsWidget(QWidget):
     def __init__(self):
         super().__init__()
+        self._current_date: DateType = DateType.today()
         self._build_ui()
+        self._refresh()
+
+    def set_date(self, date: DateType) -> None:
+        """切换查看日期（由主窗口日期选择器调用）。"""
+        self._current_date = date
         self._refresh()
 
     def _build_ui(self):
@@ -52,7 +58,7 @@ class NewsWidget(QWidget):
 
     def _refresh(self):
         self._clear_content()
-        today = DateType.today()
+        today = self._current_date
 
         if not has_today_data(today):
             self._show_message(

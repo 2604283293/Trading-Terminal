@@ -275,6 +275,7 @@ def run_screen(
     conditions: list[dict],
     on_progress: Callable[[int, int, str], None] | None = None,
     market_filter: str = "all",
+    as_of_date: DateType | None = None,
 ) -> list[ScanResult]:
     """执行全市场扫描。
 
@@ -282,6 +283,7 @@ def run_screen(
         conditions: 条件列表，每条为 {"type": ..., "params": {...}}
         on_progress: 进度回调 (current, total, current_code)
         market_filter: "sh" | "sz" | "bj" | "all"
+        as_of_date: 历史回溯日期，截断该日之后的数据。None = 使用最新数据。
 
     Returns:
         匹配的 ScanResult 列表
@@ -298,14 +300,21 @@ def run_screen(
             if f.suffix == ".day":
                 file_list.append((f.stem, f))
 
+    cutoff = pd.Timestamp(as_of_date) if as_of_date else None
+
     total = len(file_list)
     for idx, (code, path) in enumerate(file_list):
         if on_progress:
             on_progress(idx + 1, total, code)
 
         df = _read_daily_raw(path)
-        if df is None or len(df) < 5:
+        if df is None or len(df) < 2:
             continue
+
+        if cutoff is not None:
+            df = df[df["date"] <= cutoff]
+            if len(df) < 2:
+                continue
 
         match = True
         reasons = []
