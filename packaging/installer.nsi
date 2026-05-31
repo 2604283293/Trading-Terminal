@@ -62,9 +62,14 @@ Section "Install"
     ; DPI awareness
     WriteRegStr HKCU "Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers" \
         "$INSTDIR\Trading-Terminal.exe" "~ DPIUNAWARE"
+
+    ; 静默安装后自动启动应用（自动更新场景）
+    IfSilent 0 +3
+        Exec '"$INSTDIR\Trading-Terminal.exe"'
 SectionEnd
 
 Section "Uninstall"
+
     RMDir /r "$INSTDIR"
     Delete "$SMPROGRAMS\${APPNAME}\Trading-Terminal.lnk"
     Delete "$SMPROGRAMS\${APPNAME}\卸载.lnk"

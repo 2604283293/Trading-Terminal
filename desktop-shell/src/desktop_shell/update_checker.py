@@ -1,6 +1,8 @@
-"""自动更新 — 查询 GitHub Releases，有新版本时通知用户下载安装。"""
+"""自动更新 — 后台静默下载，退出后自动安装并重启。"""
 from __future__ import annotations
 
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -67,7 +69,6 @@ class _CheckWorker(QObject):
         remote_ver = tag.lstrip("v")
 
         if _is_newer(self._current, remote_ver):
-            # 找到 .exe 安装包
             url = ""
             for asset in release.get("assets", []):
                 name: str = asset.get("name", "")
@@ -90,10 +91,13 @@ def _is_newer(current: str, remote: str) -> bool:
 
 
 def download_and_install(url: str, version: str, on_progress=None) -> None:
-    """下载安装包并静默安装。"""
-    import subprocess
+    """下载安装包，写批处理脚本（退出→安装→重启），启动后立即返回。
+
+    调用方应在返回后退出应用，批处理会等待 2 秒后执行静默安装。
+    """
     dest = Path(tempfile.gettempdir()) / f"Trading-Terminal-Setup-{version}.exe"
 
+    # 1. 下载安装包
     with httpx.Client(timeout=httpx.Timeout(30.0, read=600.0)) as cli:
         with open(dest, "wb") as f:
             with cli.stream("GET", url) as r:
@@ -105,4 +109,21 @@ def download_and_install(url: str, version: str, on_progress=None) -> None:
                     if on_progress and total:
                         on_progress(downloaded, total)
 
-    subprocess.Popen([str(dest), "/SILENT"], shell=True)
+    # 2. 写批处理脚本：等待主程序退出 → 静默安装 → 清理
+    bat = dest.with_suffix(".bat")
+    bat.write_text(
+        f"@echo off\r\n"
+        f"timeout /t 2 /nobreak >nul\r\n"
+        f'start "" /wait "{dest}" /SILENT\r\n'
+        f'del "{dest}"\r\n'
+        f'del "%~f0"\r\n',
+        encoding="gbk",
+    )
+
+    # 3. 脱离父进程启动批处理
+    subprocess.Popen(
+        [str(bat)],
+        shell=True,
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000008,  # DETACHED_PROCESS
+        close_fds=True,
+    )

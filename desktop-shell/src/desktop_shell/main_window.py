@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
@@ -170,39 +169,41 @@ class MainWindow(QMainWindow):
         )
 
     def _on_update_available(self, new_version: str, download_url: str):
-        """弹出更新提示。"""
-        reply = QMessageBox.information(
-            self,
-            "发现新版本",
-            f"检测到新版本 v{new_version}（当前 v{APP_VERSION}），是否下载更新？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes and download_url:
-            self.statusBar().showMessage(f"正在下载 v{new_version}…")
-            from desktop_shell.update_checker import download_and_install
-            from PySide6.QtCore import QThread, QObject, Signal
+        """后台静默下载更新，完成后自动退出并安装。"""
+        if not download_url:
+            return
 
-            class _DownloadThread(QThread):
-                progress = Signal(int, int)
-                finished = Signal(str, str)
+        self.statusBar().showMessage(f"发现新版本 v{new_version}，正在后台下载…")
 
-                def __init__(self, url, ver):
-                    super().__init__()
-                    self._url = url
-                    self._ver = ver
+        from desktop_shell.update_checker import download_and_install
+        from PySide6.QtCore import QThread, Signal
 
-                def run(self):
-                    download_and_install(
-                        self._url, self._ver,
-                        on_progress=lambda cur, total: self.progress.emit(cur, total),
-                    )
-                    self.finished.emit("", self._ver)
+        class _DownloadThread(QThread):
+            progress = Signal(int, int)
 
-            self._dl_thread = _DownloadThread(download_url, new_version)
-            self._dl_thread.progress.connect(
-                lambda cur, total: self.statusBar().showMessage(
-                    f"下载中… {cur / 1024 / 1024:.0f} / {total / 1024 / 1024:.0f} MB"
+            def __init__(self, url, ver):
+                super().__init__()
+                self._url = url
+                self._ver = ver
+
+            def run(self):
+                download_and_install(
+                    self._url, self._ver,
+                    on_progress=lambda cur, total: self.progress.emit(cur, total),
                 )
+
+        self._dl_thread = _DownloadThread(download_url, new_version)
+        self._dl_thread.progress.connect(
+            lambda cur, total: self.statusBar().showMessage(
+                f"下载更新中… {cur / 1024 / 1024:.0f} / {total / 1024 / 1024:.0f} MB"
             )
-            self._dl_thread.finished.connect(lambda: self.statusBar().showMessage("安装程序已启动，请稍候…"))
-            self._dl_thread.start()
+        )
+        self._dl_thread.finished.connect(self._on_download_done)
+        self._dl_thread.start()
+
+    def _on_download_done(self):
+        """下载完成，退出应用让批处理执行安装。"""
+        self.statusBar().showMessage("更新已就绪，即将自动安装…")
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication
+        QTimer.singleShot(1000, QApplication.instance().quit)
