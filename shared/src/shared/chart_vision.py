@@ -1,4 +1,9 @@
-"""K线图截图识别 — 使用 Claude Vision 将图表形态映射为选股条件。"""
+"""K线图截图识别 — 使用阿里云百炼 Qwen-VL 将图表形态映射为选股条件。
+
+Endpoint: DashScope 兼容模式 (OpenAI-compatible)
+API Key: 从 DASHSCOPE_API_KEY 环境变量读取
+"""
+
 from __future__ import annotations
 
 import base64
@@ -8,8 +13,7 @@ from typing import Any
 
 import httpx
 
-ANTHROPIC_BASE = "https://api.anthropic.com"
-ANTHROPIC_VERSION = "2023-06-01"
+DASHSCOPE_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 # 系统提示词 — 告诉模型如何分析 K 线图并输出结构化条件
 SYSTEM_PROMPT = """You are a professional A-share stock chart analyst. A user will give you a screenshot of a candlestick (K-line) chart. Your job:
@@ -25,7 +29,7 @@ Available condition types and their parameters:
 - price_range: {"min_price": float, "max_price": float} — price range in RMB. Common: 5~200.
 - n_day_high: {"days": int} — today's close breaks N-day high. Common: 20, 60, 120.
 - n_day_low: {"days": int} — today's close breaks N-day low.
-- avg_volume: {"days": int, "min_amount": float} — N-day avg turnover in RMB. Common: days=5, min_amount=5e7 (5000万).
+- avg_volume: {"days": int, "min_amount": float} — N-day avg turnover in RMB. Common: days=5, min_amount=5e7.
 - ma_cross: {"short": int, "long": int, "direction": "up"|"down"} — MA crossover. Common: short=5, long=20.
 - gap: {"direction": "up"|"down", "min_pct": float} — price gap. Common: min_pct=1.0.
 - engulfing: {"direction": "bullish"|"bearish"} — candlestick engulfing pattern.
@@ -35,9 +39,8 @@ Rules:
 - Only output conditions you can actually see evidence for in the chart.
 - Always include a price_range condition (default min_price=5, max_price=200) unless the chart shows extreme prices.
 - Be conservative with parameters — don't make them too narrow unless the chart clearly shows it.
-- For volume-related conditions (volume_ratio, avg_volume), estimate from the volume bars if visible.
+- For volume-related conditions, estimate from the volume bars if visible.
 - If you see MA lines and price crossing them, use ma_cross or ma5_pullback.
-- If you cannot identify any clear pattern, output a generic trend-following condition set.
 
 Respond with ONLY a valid JSON object (no markdown, no extra text):
 {
@@ -52,24 +55,23 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
 def analyze_chart_image(
     image_bytes: bytes,
     api_key: str | None = None,
-    model: str = "claude-sonnet-4-6-20250514",
+    model: str = "qwen-vl-max",
 ) -> dict[str, Any]:
     """分析 K 线图截图，返回筛选条件。
 
     Args:
         image_bytes: PNG/JPEG 图片字节数据
-        api_key: Anthropic API key。默认从 ANTHROPIC_API_KEY 环境变量读取。
-        model: 使用的 Claude 模型。默认 Haiku 4.5（成本最低的视觉模型）。
+        api_key: 阿里云百炼 API Key。默认从 DASHSCOPE_API_KEY 环境变量读取。
+        model: 模型名。qwen-vl-max (最强) / qwen-vl-plus (经济)。
 
     Returns:
         {"success": True, "description": "...", "conditions": [...], "usage": {...}}
         或 {"success": False, "error": "..."}
     """
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+    key = api_key or os.environ.get("DASHSCOPE_API_KEY", "")
     if not key:
-        return {"success": False, "error": "未设置 ANTHROPIC_API_KEY 环境变量，且未传入 api_key"}
+        return {"success": False, "error": "未设置 DASHSCOPE_API_KEY 环境变量，且未传入 api_key"}
 
-    # 图片 → base64 data URL
     media_type = _guess_media_type(image_bytes)
     b64 = base64.b64encode(image_bytes).decode("ascii")
     data_url = f"data:{media_type};base64,{b64}"
@@ -77,36 +79,31 @@ def analyze_chart_image(
     payload = {
         "model": model,
         "max_tokens": 1024,
-        "system": SYSTEM_PROMPT,
         "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": [
                     {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": b64,
-                        },
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
                     },
                     {
                         "type": "text",
                         "text": "请分析这张K线图截图，识别其中的技术形态，并输出对应的选股筛选条件JSON。",
                     },
                 ],
-            }
+            },
         ],
     }
 
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0, read=120.0)) as cli:
             r = cli.post(
-                f"{ANTHROPIC_BASE}/v1/messages",
+                f"{DASHSCOPE_BASE}/chat/completions",
                 json=payload,
                 headers={
-                    "x-api-key": key,
-                    "anthropic-version": ANTHROPIC_VERSION,
+                    "Authorization": f"Bearer {key}",
                     "Content-Type": "application/json",
                 },
             )
@@ -118,21 +115,19 @@ def analyze_chart_image(
     except Exception as exc:
         return {"success": False, "error": f"API 调用失败: {exc}"}
 
-    # 提取文本响应
-    content_blocks = body.get("content", [])
-    text = ""
-    for block in content_blocks:
-        if block.get("type") == "text":
-            text += block.get("text", "")
-
-    if not text:
+    # 提取文本响应 (OpenAI 兼容格式)
+    choices = body.get("choices", [])
+    if not choices:
         return {"success": False, "error": "模型返回了空响应", "raw": body}
+
+    text = choices[0].get("message", {}).get("content", "")
+    if not text:
+        return {"success": False, "error": "模型返回了空内容", "raw": body}
 
     # 解析 JSON（模型可能包在 ```json ... ``` 里）
     json_text = text.strip()
     if json_text.startswith("```"):
         lines = json_text.split("\n")
-        # 去掉首行 ```json 和末行 ```
         json_text = "\n".join(lines[1:-1]) if lines[-1].strip() == "```" else "\n".join(lines[1:])
 
     try:
@@ -141,7 +136,6 @@ def analyze_chart_image(
         return {"success": False, "error": f"模型返回无法解析为 JSON:\n{text[:500]}", "raw_text": text}
 
     conditions = result.get("conditions", [])
-    # 校验条件类型
     valid_types = {
         "daily_change", "n_day_change", "volume_ratio", "consecutive_days",
         "price_range", "n_day_high", "n_day_low", "avg_volume",
@@ -162,8 +156,8 @@ def analyze_chart_image(
         "conditions": clean_conds,
         "model": body.get("model", model),
         "usage": {
-            "input_tokens": usage.get("input_tokens", 0),
-            "output_tokens": usage.get("output_tokens", 0),
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
         },
     }
 
@@ -177,4 +171,4 @@ def _guess_media_type(data: bytes) -> str:
         return "image/webp"
     if data[:3] == b"GIF":
         return "image/gif"
-    return "image/png"  # 默认
+    return "image/png"
