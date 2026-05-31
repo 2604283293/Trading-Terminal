@@ -55,7 +55,7 @@ Respond with ONLY a valid JSON object (no markdown, no extra text):
 def analyze_chart_image(
     image_bytes: bytes,
     api_key: str | None = None,
-    model: str = "qwen-vl-max",
+    model: str = "qwen3-vl-plus",
 ) -> dict[str, Any]:
     """分析 K 线图截图，返回筛选条件。
 
