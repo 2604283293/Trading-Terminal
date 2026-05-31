@@ -3,18 +3,21 @@ from __future__ import annotations
 
 from datetime import date as DateType
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QDateEdit,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from desktop_shell.feedback_tab import FeedbackWidget
+from desktop_shell.config import APP_VERSION
 from graphical_trading import GraphicalTradingWidget
 from news import NewsWidget
 from sector_trading import SectorTradingWidget
@@ -113,10 +116,12 @@ class MainWindow(QMainWindow):
         self._graphical = GraphicalTradingWidget()
         self._sector = SectorTradingWidget()
         self._news = NewsWidget()
+        self._feedback = FeedbackWidget()
 
         self._tabs.addTab(self._graphical, "图形交易")
         self._tabs.addTab(self._sector, "板块交易")
         self._tabs.addTab(self._news, "资讯")
+        self._tabs.addTab(self._feedback, "需求反馈")
         layout.addWidget(self._tabs, stretch=1)
 
         self.setCentralWidget(central)
@@ -153,3 +158,51 @@ class MainWindow(QMainWindow):
         prev_btn.clicked.connect(_go_prev)
         next_btn.clicked.connect(_go_next)
         today_btn.clicked.connect(_go_today)
+
+        # ── 自动更新检查 ──
+        from desktop_shell.update_checker import UpdateChecker
+        self._update_checker = UpdateChecker()
+        self._update_checker.update_available.connect(self._on_update_available)
+        QTimer.singleShot(3000, self._update_checker.check)
+
+        self.statusBar().showMessage(
+            f"就绪 — v{APP_VERSION} — 数据来源：本地 Parquet 文件"
+        )
+
+    def _on_update_available(self, new_version: str, download_url: str):
+        """弹出更新提示。"""
+        reply = QMessageBox.information(
+            self,
+            "发现新版本",
+            f"检测到新版本 v{new_version}（当前 v{APP_VERSION}），是否下载更新？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes and download_url:
+            self.statusBar().showMessage(f"正在下载 v{new_version}…")
+            from desktop_shell.update_checker import download_and_install
+            from PySide6.QtCore import QThread, QObject, Signal
+
+            class _DownloadThread(QThread):
+                progress = Signal(int, int)
+                finished = Signal(str, str)
+
+                def __init__(self, url, ver):
+                    super().__init__()
+                    self._url = url
+                    self._ver = ver
+
+                def run(self):
+                    download_and_install(
+                        self._url, self._ver,
+                        on_progress=lambda cur, total: self.progress.emit(cur, total),
+                    )
+                    self.finished.emit("", self._ver)
+
+            self._dl_thread = _DownloadThread(download_url, new_version)
+            self._dl_thread.progress.connect(
+                lambda cur, total: self.statusBar().showMessage(
+                    f"下载中… {cur / 1024 / 1024:.0f} / {total / 1024 / 1024:.0f} MB"
+                )
+            )
+            self._dl_thread.finished.connect(lambda: self.statusBar().showMessage("安装程序已启动，请稍候…"))
+            self._dl_thread.start()

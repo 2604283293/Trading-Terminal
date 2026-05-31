@@ -42,6 +42,15 @@ vipdoc/
 # Local scraped data (Parquet files)
 data/
 
+# PyInstaller build artifacts ("dist/" and "build/" already covered above,
+# but adding explicit paths for clarity)
+dist/
+build/
+*.spec.bak
+
+# Packaging config with live tokens (template only committed)
+packaging/config.json
+
 # Misc
 tmp/
 *.bak

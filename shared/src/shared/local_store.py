@@ -1,14 +1,24 @@
 """本地 Parquet 数据存储 — 替代 SQLite/FastAPI，UI 直接读取文件。"""
 from __future__ import annotations
 
+import sys
 from datetime import date as DateType
 from pathlib import Path
 
 import pandas as pd
 
-# shared/src/shared/local_store.py → parents[3] = project root
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_DATA_ROOT = _PROJECT_ROOT / "data"
+
+def _get_data_root() -> Path:
+    """数据根目录：打包后用 %LOCALAPPDATA%，开发环境用项目 data/。"""
+    if getattr(sys, "frozen", False):
+        import os
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "Trading-Terminal" / "data"
+    # shared/src/shared/local_store.py → parents[3] = 项目根目录
+    return Path(__file__).resolve().parents[3] / "data"
+
+
+_DATA_ROOT = _get_data_root()
 
 ACTIONS_COLUMNS = ["date", "source", "theme", "theme_id", "stock_count", "summary"]
 STOCKS_COLUMNS = [

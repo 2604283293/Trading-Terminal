@@ -1,0 +1,140 @@
+# -*- mode: python ; coding: utf-8 -*-
+"""PyInstaller spec — 将 Trading Terminal 打包为 Windows 独立应用。"""
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(SPECPATH).parent  # packaging/ -> ../
+
+a = Analysis(
+    [str(PROJECT_ROOT / "desktop-shell" / "src" / "desktop_shell" / "__main__.py")],
+    pathex=[
+        str(PROJECT_ROOT / "desktop-shell" / "src"),
+        str(PROJECT_ROOT / "shared" / "src"),
+        str(PROJECT_ROOT / "graphical-trading" / "src"),
+        str(PROJECT_ROOT / "sector-trading" / "src"),
+        str(PROJECT_ROOT / "news" / "src"),
+    ],
+    binaries=[],
+    datas=[
+        (str(PROJECT_ROOT / "VERSION"), "."),
+        (str(PROJECT_ROOT / "packaging" / "config.json"), "."),
+    ],
+    hiddenimports=[
+        "desktop_shell",
+        "desktop_shell.main_window",
+        "desktop_shell.config",
+        "desktop_shell.update_checker",
+        "desktop_shell.feedback_tab",
+        "desktop_shell.feedback_queue",
+        "graphical_trading",
+        "graphical_trading.chart_widget",
+        "sector_trading",
+        "sector_trading.placeholder",
+        "news",
+        "news.placeholder",
+        "shared",
+        "shared.local_store",
+        "shared.screener",
+        "shared.data_pipeline",
+        "shared.chart_vision",
+        "shared.noise_filter",
+        "shared.signal_aggregator",
+        "shared.lingqi_client",
+        "shared.data_sources",
+        "shared.data_sources.base",
+        "shared.data_sources.eastmoney",
+        "shared.data_sources.tdx_reader",
+        "shared.storage",
+        "shared.storage.db",
+        "shared.storage.models",
+        "pandas._libs",
+        "pyarrow",
+        "pyarrow.lib",
+        "numpy.core._methods",
+        "numpy.lib.format",
+        "httpcore",
+        "h11",
+        "shiboken6",
+    ],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[
+        "tkinter",
+        "matplotlib",
+        "scipy",
+        "PIL",
+        "cryptography",
+        "PySide6.QtWebEngine",
+        "PySide6.QtWebEngineCore",
+        "PySide6.QtWebEngineWidgets",
+        "PySide6.QtQml",
+        "PySide6.QtQuick",
+        "PySide6.Qt3D",
+        "PySide6.QtMultimedia",
+        "PySide6.QtMultimediaWidgets",
+        "PySide6.QtSensors",
+        "PySide6.QtSerialPort",
+        "PySide6.QtBluetooth",
+        "PySide6.QtNfc",
+        "PySide6.QtWebChannel",
+        "PySide6.QtWebSockets",
+        "PySide6.QtSql",
+        "PySide6.QtTest",
+        "PySide6.QtXml",
+        "PySide6.QtHelp",
+        "PySide6.QtLocation",
+        "PySide6.QtPositioning",
+        "PySide6.QtTextToSpeech",
+        "PySide6.QtRemoteObjects",
+        "selenium",
+        "bs4",
+        "beautifulsoup4",
+        "selectolax",
+    ],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=None,
+    noarchive=False,
+)
+
+# Collect all PySide6 submodules
+from PyInstaller.utils.hooks import collect_submodules
+hiddenimports_pyside = collect_submodules("PySide6")
+a.hiddenimports.extend(hiddenimports_pyside)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=None)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name="Trading-Terminal",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    # icon=str(PROJECT_ROOT / "packaging" / "app.ico"),  # TODO: add icon file
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name="Trading-Terminal",
+)

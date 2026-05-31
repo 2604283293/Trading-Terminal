@@ -1,0 +1,57 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Extract version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^v', ''
+          "version=$version" >> $env:GITHUB_OUTPUT
+          $version | Out-File -Encoding ascii -FilePath VERSION
+
+      - name: Inject GitHub token into config
+        env:
+          FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $config = Get-Content packaging/config.json -Raw | ConvertFrom-Json
+          $config.github_token = "$env:FEEDBACK_TOKEN"
+          $config | ConvertTo-Json | Out-File -Encoding utf8 -FilePath packaging/config.json
+
+      - name: Sync dependencies
+        run: uv sync
+
+      - name: Build with PyInstaller
+        run: uv run pyinstaller packaging/Trading-Terminal.spec
+
+      - name: Build NSIS installer
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=${{ steps.version.outputs.version }} packaging/installer.nsi
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Trading-Terminal-Setup-*.exe
+          generate_release_notes: true
