@@ -41,6 +41,7 @@ def ensure_data_dirs() -> None:
     subdirs = [
         "actions", "stocks", "billboard", "northbound", "sector_flow",
         "daily_dump", "hot_rank", "dragon_tiger", "dragon_tiger_seats",
+        "finance", "limit_list", "etf_daily", "auction",
     ]
     for sub in subdirs:
         (root / sub).mkdir(parents=True, exist_ok=True)

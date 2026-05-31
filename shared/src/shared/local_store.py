@@ -69,12 +69,14 @@ def load_stocks(target_date: DateType) -> pd.DataFrame:
 
 
 def has_today_data(target_date: DateType) -> bool:
-    """判断是否有任何本地缓存数据（日线/热度/龙虎榜/异动主题）。"""
+    """判断是否有任何本地缓存数据（日线/热度/龙虎榜/异动主题/涨跌停/财务）。"""
     return (
         _actions_path(target_date).exists()
         or _daily_dump_path(target_date).exists()
         or _hot_rank_path(target_date).exists()
         or _dragon_tiger_path(target_date).exists()
+        or _limit_list_path(target_date).exists()
+        or _finance_path(target_date).exists()
     )
 
 
@@ -284,3 +286,110 @@ def load_dragon_tiger_seats(target_date: DateType) -> pd.DataFrame:
     if not p.exists():
         return pd.DataFrame(columns=DRAGON_TIGER_SEAT_COLUMNS)
     return pd.read_parquet(p)
+
+
+# ── 每日财务指标 (灵启 API: /api/stock/finance) ──────────────
+
+FINANCE_COLUMNS = ["stock_code", "trade_date", "close", "turnover_rate", "pe", "pb"]
+
+
+def _finance_path(target_date: DateType) -> Path:
+    return _DATA_ROOT / "finance" / f"{target_date.isoformat()}.parquet"
+
+
+def save_finance(df: pd.DataFrame, target_date: DateType) -> None:
+    (_DATA_ROOT / "finance").mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_finance_path(target_date), index=False)
+
+
+def load_finance(target_date: DateType) -> pd.DataFrame:
+    p = _finance_path(target_date)
+    if not p.exists():
+        return pd.DataFrame(columns=FINANCE_COLUMNS)
+    return pd.read_parquet(p)
+
+
+# ── 涨跌停列表 (灵启 API: /api/stock/limit_list) ─────────────
+
+LIMIT_LIST_COLUMNS = [
+    "trade_date", "stock_code", "name", "industry", "close", "pct_chg",
+    "amount", "limit_amount", "float_mv", "total_mv", "turnover_ratio",
+    "fd_amount", "first_time", "last_time", "open_times", "up_stat",
+    "limit_times", "limit",
+]
+
+
+def _limit_list_path(target_date: DateType) -> Path:
+    return _DATA_ROOT / "limit_list" / f"{target_date.isoformat()}.parquet"
+
+
+def save_limit_list(df: pd.DataFrame, target_date: DateType) -> None:
+    (_DATA_ROOT / "limit_list").mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_limit_list_path(target_date), index=False)
+
+
+def load_limit_list(target_date: DateType) -> pd.DataFrame:
+    p = _limit_list_path(target_date)
+    if not p.exists():
+        return pd.DataFrame(columns=LIMIT_LIST_COLUMNS)
+    return pd.read_parquet(p)
+
+
+# ── ETF 日线 (灵启 API: /api/etf/daily) ──────────────────────
+
+
+def _etf_daily_path(target_date: DateType) -> Path:
+    return _DATA_ROOT / "etf_daily" / f"{target_date.isoformat()}.parquet"
+
+
+def save_etf_daily(df: pd.DataFrame, target_date: DateType) -> None:
+    (_DATA_ROOT / "etf_daily").mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_etf_daily_path(target_date), index=False)
+
+
+def load_etf_daily(target_date: DateType) -> pd.DataFrame:
+    p = _etf_daily_path(target_date)
+    if not p.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(p)
+
+
+# ── 集合竞价 (灵启 API: /api/realtime/auction_daily) ──────────
+
+AUCTION_COLUMNS = [
+    "stock_code", "stock_name", "update_time", "close", "pre_close",
+    "vol", "amount", "turnover_rate", "ask_price", "bid_price",
+    "ask_vol", "bid_vol",
+]
+
+
+def _auction_path(target_date: DateType) -> Path:
+    return _DATA_ROOT / "auction" / f"{target_date.isoformat()}.parquet"
+
+
+def save_auction(df: pd.DataFrame, target_date: DateType) -> None:
+    (_DATA_ROOT / "auction").mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_auction_path(target_date), index=False)
+
+
+def load_auction(target_date: DateType) -> pd.DataFrame:
+    p = _auction_path(target_date)
+    if not p.exists():
+        return pd.DataFrame(columns=AUCTION_COLUMNS)
+    return pd.read_parquet(p)
+
+
+# ── 交易日历 (灵启 API: /api/basic/calendar) ──────────────────
+
+_CALENDAR_PATH = _DATA_ROOT / "calendar.parquet"
+
+
+def save_calendar(df: pd.DataFrame) -> None:
+    _DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(_CALENDAR_PATH, index=False)
+
+
+def load_calendar() -> pd.DataFrame:
+    if not _CALENDAR_PATH.exists():
+        return pd.DataFrame(columns=["date", "is_open"])
+    return pd.read_parquet(_CALENDAR_PATH)

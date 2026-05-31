@@ -32,6 +32,10 @@ from shared.local_store import (
     save_northbound,
     save_sector_flow,
     save_stocks,
+    load_finance,
+    load_limit_list,
+    load_etf_daily,
+    load_auction,
 )
 from shared.noise_filter import CleanStock, CleanTheme, clean_today
 
@@ -79,6 +83,7 @@ class _ScrapeWorker(QObject):
                   "northbound": 0, "sector_flow": 0,
                   "daily_dump": 0, "hot_rank": 0, "dragon_tiger_api": 0,
                   "dragon_tiger_seats": 0,
+                  "finance": 0, "limit_list": 0, "etf_daily": 0, "auction": 0,
                   "errors": []}
 
         # ── 东方财富数据 ──
@@ -115,8 +120,12 @@ class _ScrapeWorker(QObject):
             result["hot_rank"] = api.hot_rank_rows
             result["dragon_tiger_api"] = api.dragon_tiger_rows
             result["dragon_tiger_seats"] = api.dragon_tiger_seats_rows
+            result["finance"] = api.finance_rows
+            result["limit_list"] = api.limit_list_rows
+            result["etf_daily"] = api.etf_daily_rows
+            result["auction"] = api.auction_rows
             result["errors"].extend(api.errors)
-            self.progress.emit(f"[API] 完成: 日线{result['daily_dump']}, 热度{result['hot_rank']}, 龙虎榜{result['dragon_tiger_api']}, 席位{result['dragon_tiger_seats']}")
+            self.progress.emit(f"[API] 完成: 日线{result['daily_dump']}, 热度{result['hot_rank']}, 龙虎榜{result['dragon_tiger_api']}, 席位{result['dragon_tiger_seats']}, 涨跌停{result['limit_list']}, 财务{result['finance']}, ETF{result['etf_daily']}")
         except FutureTimeout:
             msg = "API数据: 超时 (180s), 已跳过"
             result["errors"].append(msg)
@@ -211,6 +220,10 @@ class SectorTradingWidget(QWidget):
         self._sector_content = self._make_scroll_area()
         self._northbound_content = self._make_scroll_area()
         self._signal_content = self._make_scroll_area()
+        self._limit_list_content = self._make_scroll_area()
+        self._etf_daily_content = self._make_scroll_area()
+        self._finance_content = self._make_scroll_area()
+        self._auction_content = self._make_scroll_area()
 
         self._tabs.addTab(self._theme_content, "异动主题")
         self._tabs.addTab(self._billboard_content, "龙虎榜(东财)")
@@ -219,6 +232,10 @@ class SectorTradingWidget(QWidget):
         self._tabs.addTab(self._sector_content, "板块资金")
         self._tabs.addTab(self._northbound_content, "北向资金")
         self._tabs.addTab(self._signal_content, "综合信号")
+        self._tabs.addTab(self._limit_list_content, "涨跌停")
+        self._tabs.addTab(self._etf_daily_content, "ETF行情")
+        self._tabs.addTab(self._finance_content, "财务指标")
+        self._tabs.addTab(self._auction_content, "集合竞价")
 
         layout.addWidget(self._tabs, stretch=1)
 
@@ -289,6 +306,10 @@ class SectorTradingWidget(QWidget):
         self._refresh_sector_flow(today)
         self._refresh_northbound(today)
         self._refresh_signals(today)
+        self._refresh_limit_list(today)
+        self._refresh_etf_daily(today)
+        self._refresh_finance(today)
+        self._refresh_auction(today)
 
     def _refresh_themes(self, today: DateType):
         self._clear_tab(self._theme_content)
@@ -948,6 +969,14 @@ class SectorTradingWidget(QWidget):
             msgs.append(f"板块资金: {result['sector_flow']}")
         if result["northbound"]:
             msgs.append(f"北向资金: {result['northbound']}")
+        if result["limit_list"]:
+            msgs.append(f"涨跌停: {result['limit_list']}")
+        if result["finance"]:
+            msgs.append(f"财务指标: {result['finance']}")
+        if result["etf_daily"]:
+            msgs.append(f"ETF行情: {result['etf_daily']}")
+        if result["auction"]:
+            msgs.append(f"集合竞价: {result['auction']}")
 
         if result["errors"]:
             msgs.append(f"错误: {'; '.join(result['errors'])}")
@@ -956,6 +985,261 @@ class SectorTradingWidget(QWidget):
         self._log("===== 抓取完成 =====")
         self.status.setText(" | ".join(msgs))
         self._refresh()
+
+    # ── 涨跌停 ──────────────────────────────────────────────────
+
+    def _refresh_limit_list(self, today: DateType):
+        self._clear_tab(self._limit_list_content)
+        layout = self._limit_list_content.content_layout
+
+        df = load_limit_list(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无涨跌停数据。点击『刷新全部数据』抓取。")
+            return
+
+        up_count = len(df[df["limit"] == "U"]) if "limit" in df.columns else 0
+        down_count = len(df[df["limit"] == "D"]) if "limit" in df.columns else 0
+        self._tabs.setTabText(7, f"涨跌停 ({up_count}涨停/{down_count}跌停)")
+
+        # 按成交额排序
+        if "amount" in df.columns:
+            df = df.sort_values("amount", ascending=False)
+
+        for _, row in df.iterrows():
+            layout.addWidget(self._make_limit_card(row))
+
+    def _make_limit_card(self, row) -> QWidget:
+        limit_val = row.get("limit", "")
+        if limit_val == "U":
+            badge = '<span style="color:#fff; background:#d83a3a; padding:2px 6px; border-radius:3px; font-size:11px;">涨停</span>'
+        elif limit_val == "D":
+            badge = '<span style="color:#fff; background:#2e9f3e; padding:2px 6px; border-radius:3px; font-size:11px;">跌停</span>'
+        elif limit_val == "Z":
+            badge = '<span style="color:#fff; background:#f0a020; padding:2px 6px; border-radius:3px; font-size:11px;">炸板</span>'
+        else:
+            badge = '<span style="color:#888;">--</span>'
+
+        name = row.get("name", row.get("stock_code", ""))
+        code = row.get("stock_code", "")
+        industry = row.get("industry", "")
+        close = row.get("close", 0)
+        pct = row.get("pct_chg", 0) or 0
+        amount = row.get("amount", 0) or 0
+        limit_amt = row.get("limit_amount", 0) or 0
+        turnover = row.get("turnover_ratio", 0) or 0
+        float_mv = row.get("float_mv", 0) or 0
+        fd_amt = row.get("fd_amount", 0) or 0
+        open_times = row.get("open_times", 0) or 0
+        limit_times = row.get("limit_times", 0) or 0
+
+        pct_str = f"{pct:+.2f}%" if pct else "0%"
+        pct_color = _pct_color(pct)
+
+        text = (
+            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+            f"<span style='font-weight: bold; font-size: 14px;'>{name} <span style='color:#888; font-size:11px;'>{code}</span></span>"
+            f"{badge}"
+            f"</div>"
+            f"<div style='margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<span>收盘: {close:.2f}</span>"
+            f"<span style='color:{pct_color}; font-weight:bold;'>{pct_str}</span>"
+            f"<span>成交额: {_fmt_amt(amount)}</span>"
+            f"<span>封单额: {_fmt_amt(fd_amt)}</span>"
+            f"</div>"
+            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #999;'>"
+            f"<span>流通市值: {_fmt_amt(float_mv)}</span>"
+            f"<span>换手率: {turnover:.2f}%</span>"
+        )
+        if open_times > 0:
+            text += f"<span>开板: {int(open_times)}次</span>"
+        if limit_times > 1:
+            text += f"<span style='color:#d83a3a;'>{int(limit_times)}连板</span>"
+        if industry:
+            text += f"<span>行业: {industry}</span>"
+        text += "</div></div>"
+
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setStyleSheet("QLabel { padding: 0; }")
+        return lbl
+
+    # ── ETF 行情 ─────────────────────────────────────────────────
+
+    def _refresh_etf_daily(self, today: DateType):
+        self._clear_tab(self._etf_daily_content)
+        layout = self._etf_daily_content.content_layout
+
+        df = load_etf_daily(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无 ETF 数据。点击『刷新全部数据』抓取。")
+            return
+
+        self._tabs.setTabText(8, f"ETF行情 ({len(df)})")
+
+        if "pct_chg" in df.columns:
+            df = df.sort_values("pct_chg", ascending=False)
+
+        for _, row in df.iterrows():
+            layout.addWidget(self._make_etf_card(row))
+
+    def _make_etf_card(self, row) -> QWidget:
+        code = row.get("stock_code", "")
+        close = row.get("close", 0) or 0
+        pct = row.get("pct_chg", 0) or 0
+        amount = row.get("amount", 0) or 0
+        volume = row.get("volume", 0) or 0
+        total_assets = row.get("total_assets", 0) or 0
+        unit_nav = row.get("unit_nav", 0) or 0
+        accum_nav = row.get("accum_nav", 0) or 0
+        iopv = row.get("iopv", 0) or 0
+
+        pct_str = f"{pct:+.2f}%" if pct else "0%"
+        pct_color = _pct_color(pct)
+
+        text = (
+            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+            f"<span style='font-weight: bold; font-size: 13px;'>{code}</span>"
+            f"<span style='font-weight: bold; color:{pct_color}; font-size: 14px;'>{pct_str}</span>"
+            f"</div>"
+            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<span>收盘: {close:.4f}</span>"
+            f"<span>成交额: {_fmt_amt(amount)}</span>"
+        )
+        if total_assets:
+            text += f"<span>规模: {_fmt_amt(total_assets * 10000)}</span>"
+        if unit_nav:
+            text += f"<span>单位净值: {unit_nav:.4f}</span>"
+        if iopv:
+            text += f"<span>IOPV: {iopv:.4f}</span>"
+        text += "</div></div>"
+
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setStyleSheet("QLabel { padding: 0; }")
+        return lbl
+
+    # ── 财务指标 ─────────────────────────────────────────────────
+
+    def _refresh_finance(self, today: DateType):
+        self._clear_tab(self._finance_content)
+        layout = self._finance_content.content_layout
+
+        df = load_finance(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无财务指标数据。点击『刷新全部数据』抓取。")
+            return
+
+        self._tabs.setTabText(9, f"财务指标 ({len(df)})")
+
+        # 按换手率降序
+        if "turnover_rate" in df.columns:
+            df = df.sort_values("turnover_rate", ascending=False)
+
+        # 显示前200条（数据量大）
+        shown = 0
+        for _, row in df.iterrows():
+            if shown >= 200:
+                break
+            layout.addWidget(self._make_finance_card(row))
+            shown += 1
+        if len(df) > 200:
+            more = QLabel(f"…… 还有 {len(df) - 200} 条，仅显示换手率最高的前 200 只")
+            more.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            more.setStyleSheet("color: #888; padding: 8px; font-size: 12px;")
+            layout.addWidget(more)
+
+    def _make_finance_card(self, row) -> QWidget:
+        code = row.get("stock_code", "")
+        close = row.get("close", 0) or 0
+        pe = row.get("pe", 0) or 0
+        pb = row.get("pb", 0) or 0
+        turnover = row.get("turnover_rate", 0) or 0
+
+        pe_str = f"PE: {pe:.1f}" if pe > 0 else "PE: --"
+        pb_str = f"PB: {pb:.2f}" if pb > 0 else "PB: --"
+
+        text = (
+            f"<div style='padding: 6px 12px; border: 1px solid #e8e8e8; border-radius: 4px; background: #fff;'>"
+            f"<span style='font-weight: bold; font-size: 12px;'>{code}</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>{pe_str}</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>{pb_str}</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>换手: {turnover:.2f}%</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #999;'>收盘: {close:.2f}</span>"
+            f"</div>"
+        )
+
+        lbl = QLabel(text)
+        lbl.setWordWrap(False)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setStyleSheet("QLabel { padding: 0; }")
+        return lbl
+
+    # ── 集合竞价 ─────────────────────────────────────────────────
+
+    def _refresh_auction(self, today: DateType):
+        self._clear_tab(self._auction_content)
+        layout = self._auction_content.content_layout
+
+        df = load_auction(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无集合竞价数据。（仅当天 9:15-9:25 可获取）")
+            return
+
+        self._tabs.setTabText(10, f"集合竞价 ({len(df)})")
+
+        # 按成交额降序
+        if "amount" in df.columns:
+            df = df.sort_values("amount", ascending=False)
+
+        for _, row in df.iterrows():
+            layout.addWidget(self._make_auction_card(row))
+
+    def _make_auction_card(self, row) -> QWidget:
+        code = row.get("stock_code", "")
+        name = row.get("stock_name", "")
+        close = row.get("close", 0) or 0
+        pre_close = row.get("pre_close", 0) or 0
+        vol = row.get("vol", 0) or 0
+        amount = row.get("amount", 0) or 0
+        turnover = row.get("turnover_rate", 0) or 0
+        ask_price = row.get("ask_price", 0) or 0
+        bid_price = row.get("bid_price", 0) or 0
+        ask_vol = row.get("ask_vol", 0) or 0
+        bid_vol = row.get("bid_vol", 0) or 0
+
+        pct = ((close - pre_close) / pre_close * 100) if pre_close else 0
+        pct_str = f"{pct:+.2f}%" if pre_close else "--"
+        pct_color = _pct_color(pct)
+
+        text = (
+            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
+            f"<span style='font-weight: bold; font-size: 13px;'>{name} <span style='color:#888; font-size:11px;'>{code}</span></span>"
+            f"<span style='font-weight: bold; color:{pct_color}; font-size: 14px;'>{pct_str}</span>"
+            f"</div>"
+            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<span>当前价: {close:.2f}</span>"
+            f"<span>昨收: {pre_close:.2f}</span>"
+            f"<span>成交额: {_fmt_amt(amount)}</span>"
+            f"<span>成交量: {int(vol):,}</span>"
+            f"</div>"
+            f"<div style='margin-top: 3px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: #999;'>"
+            f"<span style='color:#d83a3a;'>卖一: {ask_price:.2f} ({int(ask_vol):,})</span>"
+            f"<span style='color:#2e9f3e;'>买一: {bid_price:.2f} ({int(bid_vol):,})</span>"
+        )
+        if turnover:
+            text += f"<span>换手: {turnover:.2f}%</span>"
+        text += "</div></div>"
+
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setStyleSheet("QLabel { padding: 0; }")
+        return lbl
 
     def _show_msg(self, layout, msg: str):
         label = QLabel(msg)

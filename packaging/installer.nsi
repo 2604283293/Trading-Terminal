@@ -33,6 +33,10 @@ Section "Install"
     CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\billboard"
     CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\northbound"
     CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\sector_flow"
+    CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\finance"
+    CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\limit_list"
+    CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\etf_daily"
+    CreateDirectory "$LOCALAPPDATA\${APPNAME}\data\auction"
 
     ; Start Menu
     CreateDirectory "$SMPROGRAMS\${APPNAME}"

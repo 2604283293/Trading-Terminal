@@ -24,6 +24,11 @@ from shared.lingqi_client import (
     fetch_dragon_tiger,
     fetch_hot_rank,
     fetch_top_list,
+    fetch_stock_finance,
+    fetch_limit_list,
+    fetch_etf_daily,
+    fetch_auction_daily,
+    fetch_trade_calendar,
 )
 from shared.local_store import (
     save_billboard,
@@ -33,6 +38,12 @@ from shared.local_store import (
     save_hot_rank,
     save_northbound,
     save_sector_flow,
+    save_finance,
+    save_limit_list,
+    save_etf_daily,
+    save_auction,
+    save_calendar,
+    load_calendar,
 )
 
 
@@ -168,6 +179,11 @@ class ApiDataResult:
     hot_rank_rows: int
     dragon_tiger_rows: int
     dragon_tiger_seats_rows: int
+    finance_rows: int
+    limit_list_rows: int
+    etf_daily_rows: int
+    auction_rows: int
+    calendar_rows: int
     errors: list[str]
 
 
@@ -183,6 +199,11 @@ def fetch_api_data(
     daily_rows = 0
     hot_rows = 0
     dt_rows = 0
+    finance_rows = 0
+    limit_rows = 0
+    etf_rows = 0
+    auction_rows = 0
+    calendar_rows = 0
 
     # ── 全市场日线 ──
     def _report(msg: str):
@@ -263,10 +284,100 @@ def fetch_api_data(
         if on_progress:
             on_progress(f"席位明细: {dt_seats_rows} 条 (来自 {len(seat_frames)} 只有效数据)")
 
+    # ── 涨跌停列表 ──
+    _report("正在获取涨跌停列表…")
+    try:
+        df = fetch_limit_list(start=target_date, end=target_date)
+        if not df.empty:
+            save_limit_list(df, target_date)
+            limit_rows = len(df)
+            _report(f"涨跌停列表: {limit_rows} 条")
+        else:
+            _report("涨跌停列表: 无数据")
+    except Exception as exc:
+        msg = f"涨跌停列表获取失败: {exc}"
+        errors.append(msg)
+        _report(msg)
+
+    # ── 每日财务指标 ──
+    _report("正在获取全市场财务指标 (PE/PB/换手率)…")
+    try:
+        df = fetch_stock_finance(start=target_date, end=target_date)
+        if not df.empty:
+            save_finance(df, target_date)
+            finance_rows = len(df)
+            _report(f"财务指标: {finance_rows} 条")
+        else:
+            _report("财务指标: 无数据")
+    except Exception as exc:
+        msg = f"财务指标获取失败: {exc}"
+        errors.append(msg)
+        _report(msg)
+
+    # ── ETF 日线 ──
+    _report("正在获取 ETF 日线数据…")
+    try:
+        df = fetch_etf_daily(start=target_date, end=target_date)
+        if not df.empty:
+            save_etf_daily(df, target_date)
+            etf_rows = len(df)
+            _report(f"ETF 日线: {etf_rows} 条")
+        else:
+            _report("ETF 日线: 无数据")
+    except Exception as exc:
+        msg = f"ETF 日线获取失败: {exc}"
+        errors.append(msg)
+        _report(msg)
+
+    # ── 集合竞价 ──（仅当天有数据）
+    if target_date == DateType.today():
+        _report("正在获取集合竞价数据…")
+        try:
+            df = fetch_auction_daily(target_date=target_date)
+            if not df.empty:
+                save_auction(df, target_date)
+                auction_rows = len(df)
+                _report(f"集合竞价: {auction_rows} 条")
+            else:
+                _report("集合竞价: 无数据（可能尚未开始）")
+        except Exception as exc:
+            msg = f"集合竞价获取失败: {exc}"
+            errors.append(msg)
+            _report(msg)
+    else:
+        _report("集合竞价: 跳过（仅当天可获取）")
+
+    # ── 交易日历 ──（一次性拉取一年，首次或每月刷新）
+    _report("正在更新交易日历…")
+    try:
+        existing = load_calendar()
+        if existing.empty:
+            # 首次拉取：当前年份 ±1 年
+            year = target_date.year
+            cal = fetch_trade_calendar(
+                DateType(year - 1, 1, 1),
+                DateType(year + 1, 12, 31),
+            )
+            if not cal.empty:
+                save_calendar(cal)
+                calendar_rows = len(cal)
+                _report(f"交易日历: {calendar_rows} 天")
+        else:
+            _report("交易日历: 已缓存")
+    except Exception as exc:
+        msg = f"交易日历获取失败: {exc}"
+        errors.append(msg)
+        _report(msg)
+
     return ApiDataResult(
         daily_dump_rows=daily_rows,
         hot_rank_rows=hot_rows,
         dragon_tiger_rows=dt_rows,
         dragon_tiger_seats_rows=dt_seats_rows,
+        finance_rows=finance_rows,
+        limit_list_rows=limit_rows,
+        etf_daily_rows=etf_rows,
+        auction_rows=auction_rows,
+        calendar_rows=calendar_rows,
         errors=errors,
     )

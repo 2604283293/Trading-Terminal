@@ -217,3 +217,194 @@ def fetch_stock_list() -> pd.DataFrame:
     if not records:
         return pd.DataFrame()
     return pd.DataFrame(records)
+
+
+# ── 交易日历 ──────────────────────────────────────────────────────
+
+
+def fetch_trade_calendar(start: DateType, end: DateType) -> pd.DataFrame:
+    """获取交易日历。
+
+    对应 GET/POST /api/basic/calendar
+    返回日期及是否开盘 (is_open: 0=休市, 1=开盘)。
+    """
+    data = _post("/api/basic/calendar", json={
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+    })
+    records = data.get("data", [])
+    if not records:
+        return pd.DataFrame(columns=["date", "is_open"])
+    return pd.DataFrame(records)
+
+
+# ── 每日财务指标 ──────────────────────────────────────────────────
+
+
+def fetch_stock_finance(
+    stock_codes: list[str] | None = None,
+    start: DateType | None = None,
+    end: DateType | None = None,
+) -> pd.DataFrame:
+    """获取每日财务指标（PE、PB、换手率等）。
+
+    对应 POST /api/stock/finance
+    不传 stock_codes 时返回全市场数据（分页）。
+    """
+    body: dict = {}
+    if stock_codes:
+        body["stock_code"] = stock_codes
+    if start:
+        body["start_time"] = start.isoformat()
+    if end:
+        body["end_time"] = end.isoformat()
+
+    all_records: list[dict] = []
+    page = 0
+    while True:
+        body["page"] = page
+        body["page_size"] = 10000
+        data = _post("/api/stock/finance", json=body)
+        records = data.get("data", {}).get("list", data.get("data", []))
+        if isinstance(records, dict):
+            records = records.get("list", [])
+        if not records:
+            break
+        all_records.extend(records)
+        if len(records) < 10000:
+            break
+        page += 1
+    if not all_records:
+        return pd.DataFrame(columns=["stock_code", "trade_date", "close", "turnover_rate", "pe", "pb"])
+    return pd.DataFrame(all_records)
+
+
+# ── 涨跌停列表 ────────────────────────────────────────────────────
+
+
+def fetch_limit_list(
+    stock_codes: list[str] | None = None,
+    start: DateType | None = None,
+    end: DateType | None = None,
+) -> pd.DataFrame:
+    """获取涨跌停列表。
+
+    对应 POST /api/stock/limit_list
+    不传 stock_codes 时返回全市场涨跌停数据（分页）。
+    返回: trade_date, stock_code, name, industry, close, pct_chg,
+          amount, limit_amount, float_mv, total_mv, turnover_ratio,
+          fd_amount, first_time, last_time, open_times, up_stat,
+          limit_times, limit (U/D/Z)
+    """
+    body: dict = {}
+    if stock_codes:
+        body["stock_code"] = stock_codes
+    if start:
+        body["start_time"] = start.isoformat()
+    if end:
+        body["end_time"] = end.isoformat()
+
+    all_records: list[dict] = []
+    page = 0
+    while True:
+        body["page"] = page
+        body["page_size"] = 10000
+        data = _post("/api/stock/limit_list", json=body)
+        records = data.get("data", {}).get("list", data.get("data", []))
+        if isinstance(records, dict):
+            records = records.get("list", [])
+        if not records:
+            break
+        all_records.extend(records)
+        if len(records) < 10000:
+            break
+        page += 1
+    if not all_records:
+        return pd.DataFrame()
+    return pd.DataFrame(all_records)
+
+
+# ── ETF 日线 ──────────────────────────────────────────────────────
+
+
+def fetch_etf_daily(
+    etf_codes: list[str] | None = None,
+    start: DateType | None = None,
+    end: DateType | None = None,
+) -> pd.DataFrame:
+    """获取 ETF 日K线数据。
+
+    对应 POST /api/etf/daily
+    不传 etf_codes 时返回全市场 ETF 数据（分页）。
+    返回: trade_date, stock_code, open, high, low, close, vol, amount,
+          iopv, total_shares(万份), total_assets(万元), unit_nav, accum_nav, adj_nav
+    """
+    body: dict = {}
+    if etf_codes:
+        body["stock_code"] = etf_codes
+    if start:
+        body["start_time"] = start.isoformat()
+    if end:
+        body["end_time"] = end.isoformat()
+
+    all_records: list[dict] = []
+    page = 0
+    while True:
+        body["page"] = page
+        body["page_size"] = 10000
+        data = _post("/api/etf/daily", json=body)
+        records = data.get("data", {}).get("list", data.get("data", []))
+        if isinstance(records, dict):
+            records = records.get("list", [])
+        if not records:
+            break
+        all_records.extend(records)
+        if len(records) < 10000:
+            break
+        page += 1
+    if not all_records:
+        return pd.DataFrame()
+    df = pd.DataFrame(all_records)
+    if "vol" in df.columns:
+        df = df.rename(columns={"vol": "volume"})
+    return df
+
+
+# ── 集合竞价 ──────────────────────────────────────────────────────
+
+
+def fetch_auction_daily(
+    stock_codes: list[str] | None = None,
+    target_date: DateType | None = None,
+) -> pd.DataFrame:
+    """获取集合竞价开盘数据（9:15-9:25）。
+
+    对应 POST /api/realtime/auction_daily
+    返回: stock_code, stock_name, update_time, close(当前价),
+          pre_close, vol, amount, turnover_rate, ask_price,
+          bid_price, ask_vol, bid_vol
+    """
+    body: dict = {}
+    if stock_codes:
+        body["stock_code"] = stock_codes
+    if target_date:
+        body["date"] = target_date.isoformat()
+
+    all_records: list[dict] = []
+    page = 0
+    while True:
+        body["page"] = page
+        body["page_size"] = 10000
+        data = _post("/api/realtime/auction_daily", json=body)
+        records = data.get("data", {}).get("list", data.get("data", []))
+        if isinstance(records, dict):
+            records = records.get("list", [])
+        if not records:
+            break
+        all_records.extend(records)
+        if len(records) < 10000:
+            break
+        page += 1
+    if not all_records:
+        return pd.DataFrame()
+    return pd.DataFrame(all_records)
