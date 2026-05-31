@@ -3,10 +3,13 @@ from __future__ import annotations
 
 from datetime import date as DateType, datetime
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QObject, Qt, QThread, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QHeaderView,
@@ -22,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from shared.screener import CONDITION_TYPES, run_screen, _VIPDOC
+from shared.screener import CONDITION_TYPES, run_screen
 
 # ── 预设策略 ──────────────────────────────────────────────────
 
@@ -54,6 +57,10 @@ PRESETS = {
         {"type": "engulfing", "params": {"direction": "bullish"}},
         {"type": "price_range", "params": {"min_price": 5.0, "max_price": 200.0}},
         {"type": "avg_volume", "params": {"days": 5, "min_amount": 5e7}},
+    ],
+    "回踩5日线": [
+        {"type": "ma5_pullback", "params": {"trend_days": 5, "clean_days": 2, "near_pct": 2.0}},
+        {"type": "price_range", "params": {"min_price": 5.0, "max_price": 200.0}},
     ],
 }
 
@@ -92,12 +99,12 @@ class _ScanThread(QThread):
 
     def run(self) -> None:
         try:
-            from shared.screener import _VIPDOC
-            total_files = sum(
-                sum(1 for f in d.iterdir() if f.suffix == ".day") for mkt in ("sh", "sz", "bj")
-                if (d := _VIPDOC / mkt / "lday").exists()
-            )
-            self.log_msg.emit(f"数据目录: {_VIPDOC}, 共 {total_files} 个 .day 文件")
+            from shared.local_store import list_cached_dates
+            cached = list_cached_dates()
+            if cached:
+                self.log_msg.emit(f"数据缓存: {len(cached)} 个交易日 ({cached[0]} ~ {cached[-1]})")
+            else:
+                self.log_msg.emit("数据缓存为空，请先在板块交易页点击『刷新全部数据』下载日线")
             if self._as_of_date:
                 self.log_msg.emit(f"历史回溯模式, 截止日期: {self._as_of_date.isoformat()}")
             self.log_msg.emit(f"条件: {self._conditions}")
@@ -120,13 +127,36 @@ class _ScanThread(QThread):
             self.error.emit(str(exc))
 
 
+class _VisionThread(QThread):
+    """后台调用 Claude Vision 分析图表截图。"""
+    finished = Signal(dict)
+    log_msg = Signal(str)
+
+    def __init__(self, image_bytes: bytes):
+        super().__init__()
+        self._image_bytes = image_bytes
+
+    def run(self) -> None:
+        try:
+            from shared.chart_vision import analyze_chart_image
+            self.log_msg.emit("正在调用 AI 分析图表截图…")
+            result = analyze_chart_image(self._image_bytes)
+            self.finished.emit(result)
+        except Exception as exc:
+            import traceback
+            self.log_msg.emit(f"AI 分析异常: {traceback.format_exc()}")
+            self.finished.emit({"success": False, "error": str(exc)})
+
+
 class GraphicalTradingWidget(QWidget):
     def __init__(self):
         super().__init__()
         self._scan_thread: QThread | None = None
+        self._vision_thread: QThread | None = None
         self._condition_widgets: list[dict] = []
         self._results: list = []
         self._scan_date: DateType | None = None
+        self._chart_image_bytes: bytes | None = None
         self._build_ui()
 
     def set_date(self, date: DateType) -> None:
@@ -138,6 +168,130 @@ class GraphicalTradingWidget(QWidget):
         ts = datetime.now().strftime("%H:%M:%S")
         self._log_widget.appendPlainText(f"[{ts}] {msg}")
 
+    # ── 图表截图识别 ─────────────────────────────────────────────
+
+    def _on_browse_image(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择K线图截图", "",
+            "图片文件 (*.png *.jpg *.jpeg *.webp *.bmp *.gif);;所有文件 (*.*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "rb") as f:
+                data = f.read()
+            self._load_image(data)
+            self._log(f"已加载截图: {path}")
+        except Exception as exc:
+            self._log(f"读取截图失败: {exc}")
+
+    def _load_image(self, data: bytes):
+        self._chart_image_bytes = data
+        pixmap = QPixmap()
+        pixmap.loadFromData(data)
+        if not pixmap.isNull():
+            scaled = pixmap.scaled(200, 80, Qt.AspectRatioMode.KeepAspectRatio,
+                                   Qt.TransformationMode.SmoothTransformation)
+            self._drop_label.setPixmap(scaled)
+            self._drop_label.setText("")
+            self._drop_label.setStyleSheet(
+                "QLabel { border: 2px solid #d83a3a; border-radius: 8px; "
+                "padding: 6px; background: #fff; }"
+            )
+        self._vision_btn.setEnabled(True)
+        self._vision_status.setText(f"已加载 ({len(data) / 1024:.0f} KB)")
+        self._vision_status.setStyleSheet("color: #d83a3a; font-size: 11px; border: none;")
+
+    def _on_analyze_image(self):
+        if self._chart_image_bytes is None:
+            return
+        if self._vision_thread is not None:
+            self._log("已有识别任务运行中，忽略")
+            return
+
+        self._vision_btn.setEnabled(False)
+        self._vision_btn.setText("识别中…")
+        self._vision_status.setText("正在 AI 分析…")
+        self._vision_status.setStyleSheet("color: #e8870a; font-size: 11px; border: none;")
+        self._log("发送图表截图至 AI 识别…")
+
+        self._vision_thread = _VisionThread(self._chart_image_bytes)
+        self._vision_thread.log_msg.connect(self._log)
+        self._vision_thread.finished.connect(self._on_vision_done)
+        self._vision_thread.finished.connect(self._vision_thread.deleteLater)
+        self._vision_thread.start()
+
+    def _on_vision_done(self, result: dict):
+        self._vision_btn.setEnabled(True)
+        self._vision_btn.setText("识别条件")
+        self._vision_thread = None
+
+        if not result.get("success"):
+            self._vision_status.setText(f"识别失败: {result.get('error', '未知')}")
+            self._vision_status.setStyleSheet("color: #d83a3a; font-size: 11px; border: none;")
+            self._log(f"AI 识别失败: {result.get('error', '')}")
+            return
+
+        desc = result.get("description", "")
+        conditions = result.get("conditions", [])
+        usage = result.get("usage", {})
+        self._log(f"AI 识别完成: {desc}")
+        self._log(f"Token: 输入{usage.get('input_tokens', '?')}, 输出{usage.get('output_tokens', '?')}")
+        self._log(f"识别到 {len(conditions)} 条条件: {conditions}")
+
+        self._vision_status.setText(f"已识别: {desc}")
+        self._vision_status.setStyleSheet("color: #2e9f3e; font-size: 11px; border: none;")
+        self._vision_status.setToolTip(desc)
+
+        if conditions:
+            self._clear_all_conditions()
+            for c in conditions:
+                self._add_condition(c["type"], c.get("params", {}))
+            self._log(f"已填充 {len(conditions)} 条条件，可手动调整后点「开始筛选」")
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        if urls:
+            path = urls[0].toLocalFile()
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+                self._load_image(data)
+                self._log(f"拖拽加载截图: {path}")
+            except Exception as exc:
+                self._log(f"拖拽加载失败: {exc}")
+
+    def keyPressEvent(self, event):
+        if event.matches(Qt.KeyboardShortcut.StandardKey.Paste):
+            clipboard = QApplication.instance().clipboard()
+            if clipboard:
+                mime = clipboard.mimeData()
+                if mime.hasImage():
+                    img = clipboard.image()
+                    if not img.isNull():
+                        ba = QByteArray()
+                        buf = QBuffer(ba)
+                        buf.open(QIODevice.OpenModeFlag.WriteOnly)
+                        img.save(buf, "PNG")
+                        self._load_image(bytes(ba))
+                        self._log("已从剪贴板粘贴截图")
+                elif mime.hasUrls():
+                    path = mime.urls()[0].toLocalFile()
+                    try:
+                        with open(path, "rb") as f:
+                            self._load_image(f.read())
+                        self._log(f"粘贴文件: {path}")
+                    except Exception as exc:
+                        self._log(f"粘贴加载失败: {exc}")
+        else:
+            super().keyPressEvent(event)
+
+    # ── UI ──────────────────────────────────────────────────────
+
     def _build_ui(self):
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setHandleWidth(4)
@@ -147,6 +301,47 @@ class GraphicalTradingWidget(QWidget):
         cond_layout = QVBoxLayout(cond_area)
         cond_layout.setContentsMargins(8, 8, 8, 4)
         cond_layout.setSpacing(6)
+
+        # ── 图表截图识别 ──
+        vision_bar = QHBoxLayout()
+        vision_bar.setContentsMargins(0, 0, 0, 4)
+
+        self._drop_label = QLabel("图表截图识别")
+        self._drop_label.setStyleSheet(
+            "QLabel { border: 2px dashed #ccc; border-radius: 8px; padding: 12px 18px; "
+            "color: #999; font-size: 13px; background: #fafafa; }"
+            "QLabel:hover { border-color: #d83a3a; color: #d83a3a; background: #fff5f5; }"
+        )
+        self._drop_label.setToolTip("拖拽图片到此处 / 点击上传 K 线图截图，由 AI 自动识别形态并生成选股条件")
+        self._drop_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._drop_label.mousePressEvent = lambda e: self._on_browse_image()
+        vision_bar.addWidget(self._drop_label, stretch=1)
+
+        self._vision_status = QLabel("")
+        self._vision_status.setStyleSheet("color: #888; font-size: 11px; border: none;")
+        vision_bar.addWidget(self._vision_status)
+
+        browse_btn = QPushButton("上传截图")
+        browse_btn.setStyleSheet(
+            "QPushButton { padding: 8px 16px; border: 1px solid #ccc; "
+            "border-radius: 4px; background: #fff; font-weight: bold; }"
+            "QPushButton:hover { border-color: #d83a3a; color: #d83a3a; }"
+        )
+        browse_btn.clicked.connect(self._on_browse_image)
+        vision_bar.addWidget(browse_btn)
+
+        self._vision_btn = QPushButton("识别条件")
+        self._vision_btn.setStyleSheet(
+            "QPushButton { padding: 8px 16px; background: #d83a3a; color: white; "
+            "font-weight: bold; border-radius: 4px; }"
+            "QPushButton:hover { background: #c13030; }"
+            "QPushButton:disabled { background: #ccc; }"
+        )
+        self._vision_btn.clicked.connect(self._on_analyze_image)
+        self._vision_btn.setEnabled(False)
+        vision_bar.addWidget(self._vision_btn)
+
+        cond_layout.addLayout(vision_bar)
 
         # 预设快捷按钮
         preset_bar = QHBoxLayout()
@@ -273,10 +468,12 @@ class GraphicalTradingWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(splitter)
 
-        self._log(f"程序启动，数据目录: {_VIPDOC}")
+        self.setAcceptDrops(True)
+
+        self._log("程序启动，数据来源: 灵启数据 API 缓存")
 
         # 默认加载「均线金叉」预设（必须在 log_widget 创建之后）
-        self._load_preset("均线金叉")
+        self._load_preset("回踩5日线")
 
     # ── preset ─────────────────────────────────────────────────
 
@@ -393,6 +590,16 @@ class GraphicalTradingWidget(QWidget):
             w1.setCurrentText("看涨反包" if direction == "bullish" else "看跌反包")
             row.addWidget(QLabel("形态:")); row.addWidget(w1)
             widgets["direction"] = w1
+
+        elif ctype == "ma5_pullback":
+            w1 = QSpinBox(); w1.setRange(3, 20); w1.setValue(params["trend_days"]); w1.setSuffix("日")
+            w2 = QSpinBox(); w2.setRange(1, 7); w2.setValue(params["clean_days"]); w2.setSuffix("日")
+            w3 = QDoubleSpinBox(); w3.setRange(0.5, 5.0); w3.setValue(params["near_pct"])
+            w3.setSuffix("%"); w3.setDecimals(1); w3.setSingleStep(0.5)
+            row.addWidget(QLabel("趋势确认")); row.addWidget(w1)
+            row.addWidget(QLabel("干净期")); row.addWidget(w2)
+            row.addWidget(QLabel("容差")); row.addWidget(w3)
+            widgets["trend_days"] = w1; widgets["clean_days"] = w2; widgets["near_pct"] = w3
 
         del_btn = QPushButton("×")
         del_btn.setFixedWidth(24)

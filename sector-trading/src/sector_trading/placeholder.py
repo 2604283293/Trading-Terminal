@@ -1,4 +1,4 @@
-"""板块交易 — 多源数据聚合：韭菜公社 + 东方财富(龙虎榜/北向/板块资金)。"""
+"""板块交易 — 多源数据聚合：韭菜公社 + 东方财富(龙虎榜/北向/板块资金) + 灵启数据 API。"""
 from __future__ import annotations
 
 from datetime import date as DateType, datetime
@@ -21,6 +21,9 @@ from shared.local_store import (
     has_today_data,
     load_actions,
     load_billboard,
+    load_dragon_tiger,
+    load_dragon_tiger_seats,
+    load_hot_rank,
     load_northbound,
     load_sector_flow,
     load_stocks,
@@ -51,6 +54,18 @@ def _pct_color(v: float) -> str:
 
 # ── worker ──────────────────────────────────────────────────────
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+
+_STEP_TIMEOUT = 120  # 单个步骤最长等待秒数
+
+
+def _run_with_timeout(fn, timeout: int = _STEP_TIMEOUT):
+    """在线程池中执行 fn，超时则抛异常。"""
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn)
+        return future.result(timeout=timeout)
+
+
 class _ScrapeWorker(QObject):
     progress = Signal(str)
     finished = Signal(dict)
@@ -61,34 +76,55 @@ class _ScrapeWorker(QObject):
 
     def run(self) -> None:
         result = {"ok": True, "actions": 0, "stocks": 0, "billboard": 0,
-                  "northbound": 0, "sector_flow": 0, "errors": []}
-
-        # ── 韭菜公社 (Selenium) ──
-        try:
-            self.progress.emit("正在抓取韭菜公社…")
-            from shared.data_sources.jiuyangongshe_selenium import fetch_all
-            data = fetch_all(self._target)
-            if data["actions"]:
-                save_actions(data["actions"], self._target)
-                result["actions"] = len(data["actions"])
-            if data["stocks"]:
-                save_stocks(data["stocks"], self._target)
-                result["stocks"] = len(data["stocks"])
-        except Exception as exc:
-            result["errors"].append(f"韭菜公社: {exc}")
+                  "northbound": 0, "sector_flow": 0,
+                  "daily_dump": 0, "hot_rank": 0, "dragon_tiger_api": 0,
+                  "dragon_tiger_seats": 0,
+                  "errors": []}
 
         # ── 东方财富数据 ──
+        self.progress.emit("[东方财富] 获取龙虎榜/北向/板块资金…")
         try:
-            from shared.data_pipeline import fetch_all as fetch_em
+            def _do_em():
+                from shared.data_pipeline import fetch_all as fetch_em
+                return fetch_em(self._target)
 
-            self.progress.emit("正在获取龙虎榜…")
-            em = fetch_em(self._target, on_progress=lambda msg: self.progress.emit(msg))
+            em = _run_with_timeout(_do_em, timeout=90)
             result["billboard"] = len(em.billboard)
             result["northbound"] = len(em.northbound)
             result["sector_flow"] = len(em.sector_flow)
             result["errors"].extend(em.errors)
+            self.progress.emit(f"[东方财富] 完成: 龙虎榜{result['billboard']}, 北向{result['northbound']}, 板块{result['sector_flow']}")
+        except FutureTimeout:
+            msg = "东方财富: 超时 (90s), 已跳过"
+            result["errors"].append(msg)
+            self.progress.emit(msg)
         except Exception as exc:
-            result["errors"].append(f"东方财富: {exc}")
+            msg = f"东方财富: {exc}"
+            result["errors"].append(msg)
+            self.progress.emit(msg)
+
+        # ── 灵启数据 API ──
+        self.progress.emit("[API] 下载全市场日线/热度榜/龙虎榜…")
+        try:
+            def _do_api():
+                from shared.data_pipeline import fetch_api_data
+                return fetch_api_data(self._target)
+
+            api = _run_with_timeout(_do_api, timeout=180)
+            result["daily_dump"] = api.daily_dump_rows
+            result["hot_rank"] = api.hot_rank_rows
+            result["dragon_tiger_api"] = api.dragon_tiger_rows
+            result["dragon_tiger_seats"] = api.dragon_tiger_seats_rows
+            result["errors"].extend(api.errors)
+            self.progress.emit(f"[API] 完成: 日线{result['daily_dump']}, 热度{result['hot_rank']}, 龙虎榜{result['dragon_tiger_api']}, 席位{result['dragon_tiger_seats']}")
+        except FutureTimeout:
+            msg = "API数据: 超时 (180s), 已跳过"
+            result["errors"].append(msg)
+            self.progress.emit(msg)
+        except Exception as exc:
+            msg = f"API数据: {exc}"
+            result["errors"].append(msg)
+            self.progress.emit(msg)
 
         if result["errors"]:
             result["ok"] = False
@@ -170,12 +206,16 @@ class SectorTradingWidget(QWidget):
 
         self._theme_content = self._make_scroll_area()
         self._billboard_content = self._make_scroll_area()
+        self._hot_rank_content = self._make_scroll_area()
+        self._dragon_tiger_content = self._make_scroll_area()
         self._sector_content = self._make_scroll_area()
         self._northbound_content = self._make_scroll_area()
         self._signal_content = self._make_scroll_area()
 
         self._tabs.addTab(self._theme_content, "异动主题")
-        self._tabs.addTab(self._billboard_content, "龙虎榜")
+        self._tabs.addTab(self._billboard_content, "龙虎榜(东财)")
+        self._tabs.addTab(self._hot_rank_content, "同花顺热度")
+        self._tabs.addTab(self._dragon_tiger_content, "龙虎榜(API)")
         self._tabs.addTab(self._sector_content, "板块资金")
         self._tabs.addTab(self._northbound_content, "北向资金")
         self._tabs.addTab(self._signal_content, "综合信号")
@@ -244,6 +284,8 @@ class SectorTradingWidget(QWidget):
 
         self._refresh_themes(today)
         self._refresh_billboard(today)
+        self._refresh_hot_rank(today)
+        self._refresh_dragon_tiger_api(today)
         self._refresh_sector_flow(today)
         self._refresh_northbound(today)
         self._refresh_signals(today)
@@ -284,13 +326,62 @@ class SectorTradingWidget(QWidget):
             self._show_msg(layout, "暂无龙虎榜数据。")
             return
 
-        self._tabs.setTabText(1, f"龙虎榜 ({len(df)})")
+        self._tabs.setTabText(1, f"龙虎榜(东财) ({len(df)})")
 
         # 按主力净买入排序
         df = df.sort_values("net_buy", ascending=False)
 
         for _, row in df.iterrows():
             layout.addWidget(self._make_billboard_card(row))
+
+    def _refresh_hot_rank(self, today: DateType):
+        self._clear_tab(self._hot_rank_content)
+        layout = self._hot_rank_content.content_layout
+
+        df = load_hot_rank(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无同花顺热度数据。点击『刷新全部数据』抓取。")
+            return
+
+        self._tabs.setTabText(2, f"同花顺热度 ({len(df)})")
+
+        # 按排名排序
+        df = df.sort_values("rank")
+        for _, row in df.iterrows():
+            layout.addWidget(self._make_hot_rank_card(row))
+
+    def _refresh_dragon_tiger_api(self, today: DateType):
+        self._clear_tab(self._dragon_tiger_content)
+        layout = self._dragon_tiger_content.content_layout
+
+        df = load_dragon_tiger(today)
+        if len(df) == 0:
+            self._show_msg(layout, "暂无龙虎榜(API)数据。点击『刷新全部数据』抓取。")
+            return
+
+        # 加载席位明细
+        seats_df = load_dragon_tiger_seats(today)
+        seats_by_code: dict[str, pd.DataFrame] = {}
+        if len(seats_df) > 0:
+            for code, grp in seats_df.groupby("stock_code"):
+                seats_by_code[code] = grp.sort_values("net_buy_amount", ascending=False)
+
+        n_stocks = len(df)
+        n_seats = len(seats_df)
+        label = f"龙虎榜(API) ({n_stocks}只"
+        if n_seats:
+            label += f", {n_seats}席位"
+        label += ")"
+        self._tabs.setTabText(3, label)
+
+        # 按净买入排序
+        if "net_amount" in df.columns:
+            df = df.sort_values("net_amount", ascending=False)
+
+        for _, row in df.iterrows():
+            code = row.get("stock_code", "")
+            stock_seats = seats_by_code.get(code)
+            layout.addWidget(self._make_dragon_tiger_card(row, stock_seats))
 
     def _refresh_sector_flow(self, today: DateType):
         self._clear_tab(self._sector_content)
@@ -301,7 +392,7 @@ class SectorTradingWidget(QWidget):
             self._show_msg(layout, "暂无板块资金流数据。")
             return
 
-        self._tabs.setTabText(2, f"板块资金 ({len(df)})")
+        self._tabs.setTabText(4, f"板块资金 ({len(df)})")
 
         for _, row in df.iterrows():
             layout.addWidget(self._make_sector_card(row))
@@ -324,7 +415,7 @@ class SectorTradingWidget(QWidget):
         summary.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {color}; padding: 8px 0;")
         layout.addWidget(summary)
 
-        self._tabs.setTabText(3, f"北向资金 {sign}")
+        self._tabs.setTabText(5, f"北向资金 {sign}")
 
     def _refresh_signals(self, today: DateType):
         self._clear_tab(self._signal_content)
@@ -345,7 +436,7 @@ class SectorTradingWidget(QWidget):
         themes: list[CleanTheme] = result["themes"]
         stocks: list[CleanStock] = result["stocks"]
 
-        self._tabs.setTabText(4, f"综合信号 ({len(stocks)})")
+        self._tabs.setTabText(6, f"综合信号 ({len(stocks)})")
         self._log(f"综合信号: {len(themes)} 个清洗主题, {len(stocks)} 只评分个股")
 
         # ── 主题摘要 ──
@@ -661,6 +752,158 @@ class SectorTradingWidget(QWidget):
         layout.addStretch()
         return card
 
+    def _make_hot_rank_card(self, row) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet(
+            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "border-radius: 6px; padding: 8px 12px; }"
+        )
+        layout = QHBoxLayout(card)
+        layout.setSpacing(12)
+
+        # 排名徽章
+        rank = int(row["rank"]) if row.get("rank") else 0
+        rank_color = "#d83a3a" if rank <= 3 else ("#e8870a" if rank <= 10 else "#888")
+        rank_lbl = QLabel(str(rank))
+        rank_lbl.setStyleSheet(
+            f"font-size: 14px; font-weight: bold; color: #fff; background: {rank_color}; "
+            "min-width: 28px; min-height: 28px; border-radius: 14px; "
+            "qproperty-alignment: AlignCenter;"
+        )
+        rank_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        rank_lbl.setFixedSize(28, 28)
+        layout.addWidget(rank_lbl)
+
+        # 名称 + 代码
+        name_text = f"{row['name']}  <span style='color:#888;font-size:11px;'>{row['code']}</span>"
+        name = QLabel(name_text)
+        name.setTextFormat(Qt.TextFormat.RichText)
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setFixedWidth(260)
+        layout.addWidget(name)
+
+        # 涨跌幅
+        pct = float(row.get("pct_change", 0) or 0)
+        chg = QLabel(f"{pct:+.2f}%")
+        chg.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {_pct_color(pct)};")
+        chg.setFixedWidth(80)
+        layout.addWidget(chg)
+
+        # 热度值
+        hot = float(row.get("hot", 0) or 0)
+        hot_lbl = QLabel(f"热度: {hot:.1f}")
+        hot_lbl.setStyleSheet("font-size: 12px; color: #e8870a; font-weight: bold;")
+        layout.addWidget(hot_lbl)
+
+        # 市场标签
+        market = row.get("market", "")
+        if market:
+            mkt_tag = QLabel(market)
+            mkt_tag.setStyleSheet(
+                "font-size: 10px; color: #2e7fd8; background: #e8f0fe; "
+                "padding: 2px 6px; border-radius: 3px;"
+            )
+            layout.addWidget(mkt_tag)
+
+        layout.addStretch()
+        return card
+
+    def _make_dragon_tiger_card(self, row, seats=None) -> QFrame:
+        card = QFrame()
+        card.setStyleSheet(
+            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "border-radius: 6px; padding: 10px; }"
+        )
+        layout = QVBoxLayout(card)
+        layout.setSpacing(4)
+
+        # 第一行：名称 + 代码 + 涨跌幅
+        h1 = QHBoxLayout()
+        name_text = f"{row.get('name', '')}  {row['stock_code']}"
+        name = QLabel(name_text)
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        h1.addWidget(name)
+        h1.addStretch()
+        pct = float(row.get("pct_change", 0) or 0)
+        chg = QLabel(f"{pct:+.2f}%")
+        chg.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {_pct_color(pct)};")
+        h1.addWidget(chg)
+        layout.addLayout(h1)
+
+        # 第二行：净买入 + 成交额占比
+        h2 = QHBoxLayout()
+        net = float(row.get("net_amount", 0) or 0)
+        net_label = QLabel(f"龙虎榜净买入: {_fmt_amt(net * 10000)}")
+        net_label.setStyleSheet(f"font-size: 12px; color: {_pct_color(net)}; font-weight: bold;")
+        h2.addWidget(net_label)
+        rate = float(row.get("net_rate", 0) or 0)
+        rate_label = QLabel(f"净买占比: {rate:.1f}%")
+        rate_label.setStyleSheet("font-size: 12px; color: #888;")
+        h2.addWidget(rate_label)
+        amt_rate = float(row.get("amount_rate", 0) or 0)
+        amt_label = QLabel(f"成交占比: {amt_rate:.1f}%")
+        amt_label.setStyleSheet("font-size: 12px; color: #888;")
+        h2.addWidget(amt_label)
+        h2.addStretch()
+        layout.addLayout(h2)
+
+        # 第三行：买卖额 + 原因
+        h3 = QHBoxLayout()
+        l_buy = float(row.get("l_buy", 0) or 0)
+        l_sell = float(row.get("l_sell", 0) or 0)
+        detail = QLabel(f"买入: {_fmt_amt(l_buy * 10000)}  |  卖出: {_fmt_amt(l_sell * 10000)}")
+        detail.setStyleSheet("font-size: 11px; color: #666;")
+        h3.addWidget(detail)
+        h3.addStretch()
+        reason = row.get("reason", "")
+        if reason:
+            reason_lbl = QLabel(str(reason))
+            reason_lbl.setStyleSheet(
+                "font-size: 10px; color: #666; background: #f5f5f5; "
+                "padding: 2px 6px; border-radius: 3px;"
+            )
+            h3.addWidget(reason_lbl)
+        layout.addLayout(h3)
+
+        # 第四部分：席位买卖明细
+        if seats is not None and len(seats) > 0:
+            sep = QLabel("席位买卖明细")
+            sep.setStyleSheet("font-size: 11px; color: #d83a3a; font-weight: bold; "
+                            "border-top: 1px solid #f0f0f0; padding-top: 6px; margin-top: 4px;")
+            layout.addWidget(sep)
+
+            for _, s in seats.iterrows():
+                seat_row = QHBoxLayout()
+                seat_row.setSpacing(8)
+
+                org = QLabel(str(s.get("org_name", "")))
+                org.setStyleSheet("font-size: 11px; color: #444;")
+                org.setFixedWidth(260)
+                seat_row.addWidget(org)
+
+                buy = float(s.get("buy_amount", 0) or 0)
+                buy_lbl = QLabel(f"买 {_fmt_amt(buy)}")
+                buy_lbl.setStyleSheet("font-size: 11px; color: #d83a3a; font-weight: bold;")
+                buy_lbl.setFixedWidth(80)
+                seat_row.addWidget(buy_lbl)
+
+                sell = float(s.get("sell_amount", 0) or 0)
+                sell_lbl = QLabel(f"卖 {_fmt_amt(sell)}")
+                sell_lbl.setStyleSheet("font-size: 11px; color: #2e9f3e; font-weight: bold;")
+                sell_lbl.setFixedWidth(80)
+                seat_row.addWidget(sell_lbl)
+
+                net_s = float(s.get("net_buy_amount", 0) or 0)
+                net_color = "#d83a3a" if net_s >= 0 else "#2e9f3e"
+                net_lbl = QLabel(f"净 {_fmt_amt(abs(net_s))}")
+                net_lbl.setStyleSheet(f"font-size: 11px; font-weight: bold; color: {net_color};")
+                seat_row.addWidget(net_lbl)
+
+                seat_row.addStretch()
+                layout.addLayout(seat_row)
+
+        return card
+
     # ── scrape ────────────────────────────────────────────────────
 
     def _scrape(self):
@@ -676,7 +919,7 @@ class SectorTradingWidget(QWidget):
         worker = _ScrapeWorker(self._current_date)
         worker.moveToThread(self._scrape_thread)
         self._scrape_thread.started.connect(worker.run)
-        worker.progress.connect(lambda msg: self.status.setText(msg))
+        worker.progress.connect(lambda msg: (self.status.setText(msg), self._log(msg)))
         worker.finished.connect(self._on_scrape_done)
         worker.finished.connect(self._scrape_thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -692,7 +935,15 @@ class SectorTradingWidget(QWidget):
         if result["actions"]:
             msgs.append(f"异动主题: {result['actions']}")
         if result["billboard"]:
-            msgs.append(f"龙虎榜: {result['billboard']}")
+            msgs.append(f"龙虎榜(东财): {result['billboard']}")
+        if result["daily_dump"]:
+            msgs.append(f"全市场日线: {result['daily_dump']}")
+        if result["hot_rank"]:
+            msgs.append(f"同花顺热度: {result['hot_rank']}")
+        if result["dragon_tiger_api"]:
+            msgs.append(f"龙虎榜(API): {result['dragon_tiger_api']}")
+        if result["dragon_tiger_seats"]:
+            msgs.append(f"席位明细: {result['dragon_tiger_seats']}")
         if result["sector_flow"]:
             msgs.append(f"板块资金: {result['sector_flow']}")
         if result["northbound"]:

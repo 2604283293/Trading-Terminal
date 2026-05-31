@@ -1,21 +1,17 @@
-"""选股筛选引擎 — 扫描全部 TDX 日线数据，按用户条件筛选标的。
+"""选股筛选引擎 — 扫描全市场日线数据，按用户条件筛选标的。
 
+数据来源：灵启数据 API 缓存（data/daily_dump/*.parquet），替代原 TDX .day 文件。
 在 QThread 中运行，通过回调报告进度。
 """
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass, field
-from datetime import date as DateType, datetime, timedelta
-from pathlib import Path
+from datetime import date as DateType
 from typing import Callable
 
-import numpy as np
 import pandas as pd
 
-# shared/src/shared/screener.py → parents[3] = project root
-_PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_VIPDOC = _PROJECT_ROOT / "vipdoc"
+from shared.local_store import load_daily_dump_range, list_cached_dates
 
 # 条件类型 → 中文标签
 CONDITION_TYPES: dict[str, dict] = {
@@ -74,35 +70,29 @@ CONDITION_TYPES: dict[str, dict] = {
         "params": {"direction": "bullish"},
         "hint": "看涨反包：昨阴今阳，今日实体完全吞没昨日实体；看跌反包反之。direction: bullish|bearish",
     },
+    "ma5_pullback": {
+        "label": "首次回踩5日线",
+        "params": {"trend_days": 5, "clean_days": 2, "near_pct": 2.0},
+        "hint": "上升趋势中首次回踩MA5。trend_days=趋势确认天数, clean_days=干净运行天数, near_pct=接近容差%",
+    },
 }
 
 
-def _read_daily_raw(path: Path) -> pd.DataFrame | None:
-    """快速读取 .day 文件为 DataFrame，不做任何验证。"""
-    try:
-        data = path.read_bytes()
-        n = len(data) // 32
-        if n == 0:
-            return None
-        records = []
-        for i in range(n):
-            rec = data[i * 32 : (i + 1) * 32]
-            date_int, op, hi, lo, cl, amt, vol, _res = struct.unpack("=I I I I I f I I", rec)
-            records.append({
-                "date": date_int,
-                "open": op / 100.0,
-                "high": hi / 100.0,
-                "low": lo / 100.0,
-                "close": cl / 100.0,
-                "amount": amt,
-                "volume": vol,
-            })
-        df = pd.DataFrame(records)
-        df["date"] = pd.to_datetime(df["date"].astype(str), format="%Y%m%d", errors="coerce")
-        df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+def _load_market_data(as_of_date: DateType, min_history: int = 60) -> pd.DataFrame:
+    """从 API 缓存加载全市场日线数据。
+
+    返回包含最近 min_history 个交易日（截至 as_of_date）的全部股票日线 DataFrame。
+    列: stock_code, date, open, high, low, close, volume, amount
+    """
+    df = load_daily_dump_range(as_of_date, min_days=min_history)
+    if df.empty:
         return df
-    except Exception:
-        return None
+    # 确保必需的列存在
+    required = ["stock_code", "date", "open", "high", "low", "close", "volume", "amount"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        return pd.DataFrame(columns=required)
+    return df
 
 
 def _check_condition(df: pd.DataFrame, cond: dict) -> bool:
@@ -231,6 +221,46 @@ def _check_condition(df: pd.DataFrame, cond: dict) -> bool:
                 return False
             return today_open >= yest_close and today_close <= yest_open
 
+    elif ctype == "ma5_pullback":
+        trend_days = params.get("trend_days", 10)
+        near_pct = params.get("near_pct", 2.0)
+        clean_days = params.get("clean_days", 3)
+        if len(df) < trend_days + 5:
+            return False
+
+        ma5 = df["close"].rolling(5).mean()
+        today_ma5 = ma5.iloc[-1]
+        if today_ma5 <= 0:
+            return False
+
+        # ── 1. 确认上升趋势 ──
+        recent_ma5 = ma5.iloc[-trend_days:]
+        recent_close = df["close"].iloc[-trend_days:]
+
+        # 均线斜率向上 (用中段 vs 起点的中值比较，排除单日毛刺)
+        mid = len(recent_ma5) // 2
+        if recent_ma5.iloc[-1] <= recent_ma5.iloc[mid]:
+            return False
+
+        # 大部分交易日收盘在 MA5 上方
+        above_count = (recent_close.values > recent_ma5.values).sum()
+        if above_count < int(trend_days * 0.6):
+            return False
+
+        # ── 2. 近期站稳 MA5 上方 —— 用收盘价判断，允许盘中波动 ──
+        for offset in range(1, clean_days + 1):
+            ma5_val = ma5.iloc[-offset]
+            if ma5_val <= 0:
+                return False
+            # 收盘价必须明确高于 MA5（超过容差），不算回踩
+            if df["close"].iloc[-offset] <= ma5_val * (1 + near_pct / 100):
+                return False
+
+        # ── 3. 今日首次回踩 —— 开盘或盘中触及 MA5（容差内） ──
+        nearest_today = min(today["open"], today["low"])
+        dist_pct = (nearest_today - today_ma5) / today_ma5 * 100
+        return dist_pct <= near_pct
+
     return False
 
 
@@ -279,48 +309,60 @@ def run_screen(
 ) -> list[ScanResult]:
     """执行全市场扫描。
 
+    数据来源：API 缓存（data/daily_dump/*.parquet）。
+
     Args:
         conditions: 条件列表，每条为 {"type": ..., "params": {...}}
         on_progress: 进度回调 (current, total, current_code)
         market_filter: "sh" | "sz" | "bj" | "all"
-        as_of_date: 历史回溯日期，截断该日之后的数据。None = 使用最新数据。
+        as_of_date: 历史回溯日期。None = 使用最新缓存日期。
 
     Returns:
         匹配的 ScanResult 列表
     """
     results: list[ScanResult] = []
 
-    markets = ["sh", "sz", "bj"] if market_filter == "all" else [market_filter]
-    file_list: list[tuple[str, Path]] = []
-    for mkt in markets:
-        lday_dir = _VIPDOC / mkt / "lday"
-        if not lday_dir.exists():
-            continue
-        for f in lday_dir.iterdir():
-            if f.suffix == ".day":
-                file_list.append((f.stem, f))
+    cached_dates = list_cached_dates()
+    scan_date = as_of_date or (cached_dates[-1] if cached_dates else DateType.today())
 
-    cutoff = pd.Timestamp(as_of_date) if as_of_date else None
+    # 过滤市场：从 stock_code 后缀判断
+    market_map = {"sh": ".SH", "sz": ".SZ", "bj": ".BJ"}
+    if market_filter == "all":
+        market_suffix = None
+    else:
+        market_suffix = market_map.get(market_filter, "")
 
-    total = len(file_list)
-    for idx, (code, path) in enumerate(file_list):
+    # ── 加载全市场历史数据 ──
+    market_df = _load_market_data(scan_date, min_history=60)
+    if market_df.empty:
+        return results
+
+    # 按日期截断
+    cutoff = pd.Timestamp(scan_date)
+    market_df = market_df[market_df["date"] <= cutoff]
+
+    # 按股票分组
+    grouped = market_df.groupby("stock_code")
+    codes = list(grouped.groups.keys())
+
+    # 市场筛选
+    if market_suffix:
+        codes = [c for c in codes if c.endswith(market_suffix)]
+
+    total = len(codes)
+    for idx, code in enumerate(codes):
         if on_progress:
             on_progress(idx + 1, total, code)
 
-        df = _read_daily_raw(path)
-        if df is None or len(df) < 2:
+        stock_df = grouped.get_group(code).sort_values("date").reset_index(drop=True)
+        if len(stock_df) < 2:
             continue
-
-        if cutoff is not None:
-            df = df[df["date"] <= cutoff]
-            if len(df) < 2:
-                continue
 
         match = True
         reasons = []
         for cond in conditions:
             try:
-                if not _check_condition(df, cond):
+                if not _check_condition(stock_df, cond):
                     match = False
                     break
                 reasons.append(CONDITION_TYPES[cond["type"]]["label"])
@@ -329,7 +371,7 @@ def run_screen(
                 break
 
         if match:
-            metrics = _compute_metrics(df)
+            metrics = _compute_metrics(stock_df)
             results.append(ScanResult(code=code, metrics=metrics, match_reasons=reasons))
 
     return results

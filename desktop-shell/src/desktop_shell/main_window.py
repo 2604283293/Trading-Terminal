@@ -20,11 +20,24 @@ from news import NewsWidget
 from sector_trading import SectorTradingWidget
 
 
+def _latest_cached_date() -> DateType:
+    """返回最新的缓存交易日，无缓存时返回今天。"""
+    try:
+        from shared.local_store import list_cached_dates
+        dates = list_cached_dates()
+        return dates[-1] if dates else DateType.today()
+    except Exception:
+        return DateType.today()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Trading Terminal")
         self.resize(1280, 800)
+
+        # 启动时定位到最新缓存交易日
+        launch_date = _latest_cached_date()
 
         central = QWidget()
         layout = QVBoxLayout(central)
@@ -50,7 +63,7 @@ class MainWindow(QMainWindow):
         self._date_edit.setCalendarPopup(True)
         self._date_edit.setDisplayFormat("yyyy-MM-dd")
         self._date_edit.setMaximumDate(DateType.today())
-        self._date_edit.setDate(DateType.today())
+        self._date_edit.setDate(launch_date)
         self._date_edit.setStyleSheet(
             "QDateEdit { border: 1px solid #ccc; border-radius: 3px; padding: 3px 6px; "
             "background: #fff; font-size: 13px; color: #333; }"
@@ -122,6 +135,7 @@ class MainWindow(QMainWindow):
             )
 
         self._date_edit.dateChanged.connect(lambda _: _on_date_changed())
+        _on_date_changed()  # 显式通知所有 tab 当前日期，因为 setDate() 在 tab 创建之前就已触发
 
         def _go_prev():
             d = self._date_edit.date().addDays(-1)
