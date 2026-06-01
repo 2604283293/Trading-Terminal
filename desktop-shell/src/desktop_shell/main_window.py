@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from desktop_shell.feedback_tab import FeedbackWidget
 from desktop_shell.config import APP_VERSION
+from desktop_shell.theme import UP, SURFACE_BG, CARD_BORDER, MUTED, DIM
 from graphical_trading import GraphicalTradingWidget
 from news import NewsWidget
 from sector_trading import SectorTradingWidget
@@ -48,7 +49,7 @@ class MainWindow(QMainWindow):
 
         # ── 日期导航条 ──
         nav = QWidget()
-        nav.setStyleSheet("QWidget { background: #f5f5f5; border-bottom: 1px solid #e0e0e0; }")
+        nav.setStyleSheet(f"QWidget {{ background: {SURFACE_BG}; border-bottom: 1px solid {CARD_BORDER}; }}")
         nav_layout = QHBoxLayout(nav)
         nav_layout.setContentsMargins(12, 6, 12, 6)
         nav_layout.setSpacing(6)
@@ -56,8 +57,9 @@ class MainWindow(QMainWindow):
         prev_btn = QPushButton("<")
         prev_btn.setFixedWidth(28)
         prev_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #ccc; border-radius: 3px; background: #fff; font-weight: bold; }"
-            "QPushButton:hover { background: #e0e0e0; }"
+            f"QPushButton {{ border: 1px solid {CARD_BORDER}; border-radius: 3px; background: #333; "
+            f"color: #ccc; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: #444; }}"
         )
         nav_layout.addWidget(prev_btn)
 
@@ -67,41 +69,42 @@ class MainWindow(QMainWindow):
         self._date_edit.setMaximumDate(DateType.today())
         self._date_edit.setDate(launch_date)
         self._date_edit.setStyleSheet(
-            "QDateEdit { border: 1px solid #ccc; border-radius: 3px; padding: 3px 6px; "
-            "background: #fff; font-size: 13px; color: #333; }"
-            "QDateEdit::drop-down { subcontrol-origin: padding; subcontrol-position: center right; "
-            "width: 20px; border-left: 1px solid #e0e0e0; }"
-            "QDateEdit::down-arrow { image: none; border-left: 4px solid transparent; "
-            "border-right: 4px solid transparent; border-top: 5px solid #888; "
-            "margin-right: 4px; }"
+            f"QDateEdit {{ border: 1px solid {CARD_BORDER}; border-radius: 3px; padding: 3px 6px; "
+            f"background: #333; font-size: 13px; color: #ddd; }}"
+            f"QDateEdit::drop-down {{ subcontrol-origin: padding; subcontrol-position: center right; "
+            f"width: 20px; border-left: 1px solid {CARD_BORDER}; }}"
+            f"QDateEdit::down-arrow {{ image: none; border-left: 4px solid transparent; "
+            f"border-right: 4px solid transparent; border-top: 5px solid #888; "
+            f"margin-right: 4px; }}"
         )
         cal = self._date_edit.calendarWidget()
         cal.setStyleSheet(
-            "QCalendarWidget { background: #fff; }"
-            "QCalendarWidget QToolButton { color: #333; background: #f0f0f0; "
-            "border: 1px solid #ddd; border-radius: 3px; padding: 4px 8px; font-weight: bold; }"
-            "QCalendarWidget QToolButton:hover { background: #e0e0e0; }"
-            "QCalendarWidget QSpinBox { border: 1px solid #ccc; border-radius: 2px; "
-            "padding: 2px 4px; color: #333; background: #fff; }"
-            "QCalendarWidget QTableView { color: #333; background: #fff; "
-            "selection-background-color: #d83a3a; selection-color: white; font-size: 12px; "
-            "outline: none; }"
+            f"QCalendarWidget {{ background: #2a2a2a; color: #ddd; }}"
+            f"QCalendarWidget QToolButton {{ color: #ddd; background: #333; "
+            f"border: 1px solid {CARD_BORDER}; border-radius: 3px; padding: 4px 8px; font-weight: bold; }}"
+            f"QCalendarWidget QToolButton:hover {{ background: #444; }}"
+            f"QCalendarWidget QSpinBox {{ border: 1px solid {CARD_BORDER}; border-radius: 2px; "
+            f"padding: 2px 4px; color: #ddd; background: #333; }}"
+            f"QCalendarWidget QTableView {{ color: #ddd; background: #2a2a2a; "
+            f"selection-background-color: {UP}; selection-color: white; font-size: 12px; "
+            f"outline: none; }}"
         )
         nav_layout.addWidget(self._date_edit)
 
         next_btn = QPushButton(">")
         next_btn.setFixedWidth(28)
         next_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #ccc; border-radius: 3px; background: #fff; font-weight: bold; }"
-            "QPushButton:hover { background: #e0e0e0; }"
+            f"QPushButton {{ border: 1px solid {CARD_BORDER}; border-radius: 3px; background: #333; "
+            f"color: #ccc; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: #444; }}"
         )
         nav_layout.addWidget(next_btn)
 
         today_btn = QPushButton("今天")
         today_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #d83a3a; border-radius: 3px; color: #d83a3a; "
-            "background: #fff; padding: 3px 10px; font-weight: bold; }"
-            "QPushButton:hover { background: #ffe0e0; }"
+            f"QPushButton {{ border: 1px solid {UP}; border-radius: 3px; color: {UP}; "
+            f"background: transparent; padding: 3px 10px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background: #3d2020; }}"
         )
         nav_layout.addWidget(today_btn)
 

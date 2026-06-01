@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QApplication
 
 from desktop_shell.config import ensure_data_dirs
 from desktop_shell.main_window import MainWindow
+from desktop_shell.theme import apply_theme
 
 
 def main() -> int:
@@ -20,6 +21,9 @@ def main() -> int:
     if not font.exactMatch():
         font = QFont("SimHei", 9)
     app.setFont(font)
+
+    # 应用深色专业主题 (qt-material)
+    apply_theme(app, theme="dark_teal.xml")
 
     try:
         app.setAttribute(Qt.ApplicationAttribute.AA_UseOpenGLES, True)

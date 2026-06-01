@@ -98,7 +98,7 @@ class NewsWidget(QWidget):
 
         body = QLabel(item["summary"])
         body.setWordWrap(True)
-        body.setStyleSheet("color: #333; font-size: 14px; line-height: 1.6;")
+        body.setStyleSheet("color: #ccc; font-size: 14px; line-height: 1.6;")
         layout.addWidget(body)
 
         return entry

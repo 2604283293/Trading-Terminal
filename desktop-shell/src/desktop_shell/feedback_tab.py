@@ -64,7 +64,7 @@ class FeedbackWidget(QWidget):
         # ── 表单 ──
         form = QWidget()
         form.setStyleSheet(
-            "QWidget { background: #fff; border: 1px solid #e5e5e5; "
+            "QWidget { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 8px; padding: 16px; }"
         )
         form_layout = QVBoxLayout(form)
@@ -98,7 +98,7 @@ class FeedbackWidget(QWidget):
         self._desc.setPlaceholderText("请描述：\n1. 具体问题或需求\n2. 期望的结果\n3. 复现步骤（如适用）")
         self._desc.setMinimumHeight(100)
         self._desc.setStyleSheet(
-            "QPlainTextEdit { border: 1px solid #ddd; border-radius: 4px; padding: 8px; "
+            "QPlainTextEdit { border: 1px solid #3a3a3a; border-radius: 4px; padding: 8px; "
             "font-size: 13px; }"
         )
         form_layout.addWidget(self._desc)
@@ -110,7 +110,7 @@ class FeedbackWidget(QWidget):
             "QPushButton { background: #d83a3a; color: white; font-weight: bold; "
             "padding: 8px 24px; border-radius: 4px; }"
             "QPushButton:hover { background: #c13030; }"
-            "QPushButton:disabled { background: #ccc; }"
+            "QPushButton:disabled { background: #555; }"
         )
         self._submit_btn.clicked.connect(self._on_submit)
         btn_row.addWidget(self._submit_btn)

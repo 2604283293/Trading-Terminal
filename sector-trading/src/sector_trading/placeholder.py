@@ -38,6 +38,7 @@ from shared.local_store import (
     load_auction,
 )
 from shared.noise_filter import CleanStock, CleanTheme, clean_today
+from desktop_shell.theme import UP, DOWN, WARN, INFO, MUTED, DIM, CARD_BG, CARD_BORDER, SURFACE_BG
 
 
 def _fmt_amt(v: float) -> str:
@@ -50,10 +51,10 @@ def _fmt_amt(v: float) -> str:
 
 def _pct_color(v: float) -> str:
     if v > 0:
-        return "#d83a3a"
+        return UP
     elif v < 0:
-        return "#2e9f3e"
-    return "#888"
+        return DOWN
+    return MUTED
 
 
 # ── worker ──────────────────────────────────────────────────────
@@ -169,7 +170,7 @@ class SectorTradingWidget(QWidget):
                 "QPushButton { background: #d83a3a; color: white; font-weight: bold; "
                 "padding: 6px 16px; border-radius: 4px; }"
                 "QPushButton:hover { background: #c13030; }"
-                "QPushButton:disabled { background: #ccc; }"
+                "QPushButton:disabled { background: #555; }"
             )
         self._refresh()
 
@@ -195,7 +196,7 @@ class SectorTradingWidget(QWidget):
         toolbar.addStretch()
 
         self.status = QLabel("")
-        self.status.setStyleSheet("color: #888; font-size: 12px;")
+        self.status.setStyleSheet(f"color: {MUTED}; font-size: 12px;")
         toolbar.addWidget(self.status)
 
         self.scrape_btn = QPushButton("刷新全部数据")
@@ -203,7 +204,7 @@ class SectorTradingWidget(QWidget):
             "QPushButton { background: #d83a3a; color: white; font-weight: bold; "
             "padding: 6px 16px; border-radius: 4px; }"
             "QPushButton:hover { background: #c13030; }"
-            "QPushButton:disabled { background: #ccc; }"
+            "QPushButton:disabled { background: #555; }"
         )
         self.scrape_btn.clicked.connect(self._scrape)
         toolbar.addWidget(self.scrape_btn)
@@ -250,8 +251,8 @@ class SectorTradingWidget(QWidget):
         log_header.addWidget(QLabel("运行日志:"))
         clear_btn = QPushButton("清空")
         clear_btn.setStyleSheet(
-            "QPushButton { padding: 2px 8px; border: 1px solid #ddd; border-radius: 2px; color: #888; }"
-            "QPushButton:hover { color: #333; border-color: #999; }"
+            "QPushButton { padding: 2px 8px; border: 1px solid #3a3a3a; border-radius: 2px; color: #888; }"
+            "QPushButton:hover { color: #ccc; border-color: #999; }"
         )
         log_header.addWidget(clear_btn)
         log_header.addStretch()
@@ -467,7 +468,7 @@ class SectorTradingWidget(QWidget):
 
         summary_text = f"主线 {len(main_line)} 个 · 热点 {len(hot)} 个 · 新题材 {len(new)} 个"
         summary = QLabel(summary_text)
-        summary.setStyleSheet("font-size: 13px; color: #555; padding: 4px 0 8px 0;")
+        summary.setStyleSheet("font-size: 13px; color: #aaa; padding: 4px 0 8px 0;")
         layout.addWidget(summary)
 
         # ── 主题卡片 ──
@@ -491,7 +492,7 @@ class SectorTradingWidget(QWidget):
     def _make_signal_theme_card(self, t: CleanTheme) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 10px; }"
         )
         layout = QHBoxLayout(card)
@@ -511,7 +512,7 @@ class SectorTradingWidget(QWidget):
         layout.addWidget(tag)
 
         name = QLabel(t.name)
-        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #ddd;")
         name.setFixedWidth(140)
         layout.addWidget(name)
 
@@ -558,7 +559,7 @@ class SectorTradingWidget(QWidget):
 
             # 名称
             name_lbl = QLabel(s.name)
-            name_lbl.setStyleSheet("font-size: 12px; font-weight: bold; color: #333;")
+            name_lbl.setStyleSheet("font-size: 12px; font-weight: bold; color: #ccc;")
             name_lbl.setFixedWidth(100)
             row.addWidget(name_lbl)
 
@@ -577,7 +578,7 @@ class SectorTradingWidget(QWidget):
 
             # 量比
             vol_lbl = QLabel(f"{s.volume_ratio:.1f}")
-            vol_lbl.setStyleSheet("font-size: 12px; color: #555;")
+            vol_lbl.setStyleSheet("font-size: 12px; color: #aaa;")
             vol_lbl.setFixedWidth(55)
             row.addWidget(vol_lbl)
 
@@ -612,7 +613,7 @@ class SectorTradingWidget(QWidget):
     def _make_theme_card(self, item, theme_stocks) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 12px; }"
         )
         layout = QVBoxLayout(card)
@@ -620,7 +621,7 @@ class SectorTradingWidget(QWidget):
 
         header = QHBoxLayout()
         theme = QLabel(item["theme"])
-        theme.setStyleSheet("font-size: 16px; font-weight: bold; color: #222;")
+        theme.setStyleSheet("font-size: 16px; font-weight: bold; color: #ddd;")
         header.addWidget(theme)
         header.addSpacing(12)
         count = QLabel(f"{item['stock_count']} 只异动")
@@ -635,7 +636,7 @@ class SectorTradingWidget(QWidget):
         if item["summary"]:
             summary = QLabel(item["summary"])
             summary.setWordWrap(True)
-            summary.setStyleSheet("color: #444; font-size: 13px;")
+            summary.setStyleSheet("color: #bbb; font-size: 13px;")
             layout.addWidget(summary)
 
         if theme_stocks is not None and len(theme_stocks) > 0:
@@ -663,9 +664,9 @@ class SectorTradingWidget(QWidget):
             for key, w in [("name", 100), ("code", 70), ("last_price", 70), ("change_pct", 80), ("limit_time", 70), ("action_type", 80)]:
                 val = str(s[key])
                 lbl = QLabel(val)
-                style = "font-size: 12px; color: #333;"
+                style = "font-size: 12px; color: #ccc;"
                 if key == "name":
-                    style = "font-size: 12px; font-weight: bold; color: #333;"
+                    style = "font-size: 12px; font-weight: bold; color: #ccc;"
                 elif key == "code":
                     style = "font-size: 11px; color: #888;"
                 elif key == "change_pct":
@@ -689,7 +690,7 @@ class SectorTradingWidget(QWidget):
     def _make_billboard_card(self, row) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 10px; }"
         )
         layout = QVBoxLayout(card)
@@ -698,7 +699,7 @@ class SectorTradingWidget(QWidget):
         # 第一行：名称 + 代码 + 涨跌幅
         h1 = QHBoxLayout()
         name = QLabel(f"{row['name']}  {row['code']}")
-        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #ddd;")
         h1.addWidget(name)
         h1.addStretch()
         chg = QLabel(f"{row['change_pct']:+.2f}%")
@@ -717,7 +718,7 @@ class SectorTradingWidget(QWidget):
         h2.addStretch()
         if row["reason"]:
             reason = QLabel(row["reason"])
-            reason.setStyleSheet("font-size: 11px; color: #666; background: #f5f5f5; "
+            reason.setStyleSheet("font-size: 11px; color: #999; background: #252525; "
                                 "padding: 2px 6px; border-radius: 3px;")
             h2.addWidget(reason)
         layout.addLayout(h2)
@@ -740,7 +741,7 @@ class SectorTradingWidget(QWidget):
     def _make_sector_card(self, row) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 8px 12px; }"
         )
         layout = QHBoxLayout(card)
@@ -753,7 +754,7 @@ class SectorTradingWidget(QWidget):
         layout.addWidget(tag)
 
         name = QLabel(f"{row['name']}")
-        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #ddd;")
         name.setFixedWidth(120)
         layout.addWidget(name)
 
@@ -776,7 +777,7 @@ class SectorTradingWidget(QWidget):
     def _make_hot_rank_card(self, row) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 8px 12px; }"
         )
         layout = QHBoxLayout(card)
@@ -799,7 +800,7 @@ class SectorTradingWidget(QWidget):
         name_text = f"{row['name']}  <span style='color:#888;font-size:11px;'>{row['code']}</span>"
         name = QLabel(name_text)
         name.setTextFormat(Qt.TextFormat.RichText)
-        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #ddd;")
         name.setFixedWidth(260)
         layout.addWidget(name)
 
@@ -832,7 +833,7 @@ class SectorTradingWidget(QWidget):
     def _make_dragon_tiger_card(self, row, seats=None) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
-            "QFrame { background: #fff; border: 1px solid #e5e5e5; "
+            "QFrame { background: #2b2b2b; border: 1px solid #3a3a3a; "
             "border-radius: 6px; padding: 10px; }"
         )
         layout = QVBoxLayout(card)
@@ -842,7 +843,7 @@ class SectorTradingWidget(QWidget):
         h1 = QHBoxLayout()
         name_text = f"{row.get('name', '')}  {row['stock_code']}"
         name = QLabel(name_text)
-        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #222;")
+        name.setStyleSheet("font-size: 14px; font-weight: bold; color: #ddd;")
         h1.addWidget(name)
         h1.addStretch()
         pct = float(row.get("pct_change", 0) or 0)
@@ -873,14 +874,14 @@ class SectorTradingWidget(QWidget):
         l_buy = float(row.get("l_buy", 0) or 0)
         l_sell = float(row.get("l_sell", 0) or 0)
         detail = QLabel(f"买入: {_fmt_amt(l_buy * 10000)}  |  卖出: {_fmt_amt(l_sell * 10000)}")
-        detail.setStyleSheet("font-size: 11px; color: #666;")
+        detail.setStyleSheet("font-size: 11px; color: #999;")
         h3.addWidget(detail)
         h3.addStretch()
         reason = row.get("reason", "")
         if reason:
             reason_lbl = QLabel(str(reason))
             reason_lbl.setStyleSheet(
-                "font-size: 10px; color: #666; background: #f5f5f5; "
+                "font-size: 10px; color: #999; background: #252525; "
                 "padding: 2px 6px; border-radius: 3px;"
             )
             h3.addWidget(reason_lbl)
@@ -898,7 +899,7 @@ class SectorTradingWidget(QWidget):
                 seat_row.setSpacing(8)
 
                 org = QLabel(str(s.get("org_name", "")))
-                org.setStyleSheet("font-size: 11px; color: #444;")
+                org.setStyleSheet("font-size: 11px; color: #bbb;")
                 org.setFixedWidth(260)
                 seat_row.addWidget(org)
 
@@ -1036,12 +1037,12 @@ class SectorTradingWidget(QWidget):
         pct_color = _pct_color(pct)
 
         text = (
-            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='padding: 8px 12px; border: 1px solid #3a3a3a; border-radius: 6px; background: #2b2b2b;'>"
             f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
             f"<span style='font-weight: bold; font-size: 14px;'>{name} <span style='color:#888; font-size:11px;'>{code}</span></span>"
             f"{badge}"
             f"</div>"
-            f"<div style='margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<div style='margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #999;'>"
             f"<span>收盘: {close:.2f}</span>"
             f"<span style='color:{pct_color}; font-weight:bold;'>{pct_str}</span>"
             f"<span>成交额: {_fmt_amt(amount)}</span>"
@@ -1099,12 +1100,12 @@ class SectorTradingWidget(QWidget):
         pct_color = _pct_color(pct)
 
         text = (
-            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='padding: 8px 12px; border: 1px solid #3a3a3a; border-radius: 6px; background: #2b2b2b;'>"
             f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
             f"<span style='font-weight: bold; font-size: 13px;'>{code}</span>"
             f"<span style='font-weight: bold; color:{pct_color}; font-size: 14px;'>{pct_str}</span>"
             f"</div>"
-            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #999;'>"
             f"<span>收盘: {close:.4f}</span>"
             f"<span>成交额: {_fmt_amt(amount)}</span>"
         )
@@ -1163,11 +1164,11 @@ class SectorTradingWidget(QWidget):
         pb_str = f"PB: {pb:.2f}" if pb > 0 else "PB: --"
 
         text = (
-            f"<div style='padding: 6px 12px; border: 1px solid #e8e8e8; border-radius: 4px; background: #fff;'>"
+            f"<div style='padding: 6px 12px; border: 1px solid #3a3a3a; border-radius: 4px; background: #2b2b2b;'>"
             f"<span style='font-weight: bold; font-size: 12px;'>{code}</span>"
-            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>{pe_str}</span>"
-            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>{pb_str}</span>"
-            f"<span style='margin-left: 12px; font-size: 12px; color: #666;'>换手: {turnover:.2f}%</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #999;'>{pe_str}</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #999;'>{pb_str}</span>"
+            f"<span style='margin-left: 12px; font-size: 12px; color: #999;'>换手: {turnover:.2f}%</span>"
             f"<span style='margin-left: 12px; font-size: 12px; color: #999;'>收盘: {close:.2f}</span>"
             f"</div>"
         )
@@ -1216,12 +1217,12 @@ class SectorTradingWidget(QWidget):
         pct_color = _pct_color(pct)
 
         text = (
-            f"<div style='padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; background: #fff;'>"
+            f"<div style='padding: 8px 12px; border: 1px solid #3a3a3a; border-radius: 6px; background: #2b2b2b;'>"
             f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
             f"<span style='font-weight: bold; font-size: 13px;'>{name} <span style='color:#888; font-size:11px;'>{code}</span></span>"
             f"<span style='font-weight: bold; color:{pct_color}; font-size: 14px;'>{pct_str}</span>"
             f"</div>"
-            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #666;'>"
+            f"<div style='margin-top: 4px; display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: #999;'>"
             f"<span>当前价: {close:.2f}</span>"
             f"<span>昨收: {pre_close:.2f}</span>"
             f"<span>成交额: {_fmt_amt(amount)}</span>"

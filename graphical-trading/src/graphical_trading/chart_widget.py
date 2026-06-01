@@ -196,7 +196,7 @@ class GraphicalTradingWidget(QWidget):
             self._drop_label.setText("")
             self._drop_label.setStyleSheet(
                 "QLabel { border: 2px solid #d83a3a; border-radius: 8px; "
-                "padding: 6px; background: #fff; }"
+                "padding: 6px; background: #2b2b2b; }"
             )
         self._vision_btn.setEnabled(True)
         self._vision_status.setText(f"已加载 ({len(data) / 1024:.0f} KB)")
@@ -309,7 +309,7 @@ class GraphicalTradingWidget(QWidget):
         self._drop_label = QLabel("图表截图识别")
         self._drop_label.setStyleSheet(
             "QLabel { border: 2px dashed #ccc; border-radius: 8px; padding: 12px 18px; "
-            "color: #999; font-size: 13px; background: #fafafa; }"
+            "color: #999; font-size: 13px; background: #2a2a2a; }"
             "QLabel:hover { border-color: #d83a3a; color: #d83a3a; background: #fff5f5; }"
         )
         self._drop_label.setToolTip("拖拽图片到此处 / 点击上传 K 线图截图，由 AI 自动识别形态并生成选股条件")
@@ -323,8 +323,8 @@ class GraphicalTradingWidget(QWidget):
 
         browse_btn = QPushButton("上传截图")
         browse_btn.setStyleSheet(
-            "QPushButton { padding: 8px 16px; border: 1px solid #ccc; "
-            "border-radius: 4px; background: #fff; font-weight: bold; }"
+            "QPushButton { padding: 8px 16px; border: 1px solid #444; "
+            "border-radius: 4px; background: #2b2b2b; font-weight: bold; }"
             "QPushButton:hover { border-color: #d83a3a; color: #d83a3a; }"
         )
         browse_btn.clicked.connect(self._on_browse_image)
@@ -335,7 +335,7 @@ class GraphicalTradingWidget(QWidget):
             "QPushButton { padding: 8px 16px; background: #d83a3a; color: white; "
             "font-weight: bold; border-radius: 4px; }"
             "QPushButton:hover { background: #c13030; }"
-            "QPushButton:disabled { background: #ccc; }"
+            "QPushButton:disabled { background: #555; }"
         )
         self._vision_btn.clicked.connect(self._on_analyze_image)
         self._vision_btn.setEnabled(False)
@@ -349,8 +349,8 @@ class GraphicalTradingWidget(QWidget):
         for name in PRESETS:
             btn = QPushButton(name)
             btn.setStyleSheet(
-                "QPushButton { padding: 4px 12px; border: 1px solid #ccc; "
-                "border-radius: 3px; background: #f8f8f8; }"
+                "QPushButton { padding: 4px 12px; border: 1px solid #444; "
+                "border-radius: 3px; background: #2a2a2a; }"
                 "QPushButton:hover { background: #ffe0e0; border-color: #d83a3a; }"
             )
             btn.clicked.connect(lambda checked, n=name: self._load_preset(n))
@@ -358,7 +358,7 @@ class GraphicalTradingWidget(QWidget):
 
         clear_btn = QPushButton("清空条件")
         clear_btn.setStyleSheet(
-            "QPushButton { padding: 4px 12px; border: 1px solid #ddd; "
+            "QPushButton { padding: 4px 12px; border: 1px solid #3a3a3a; "
             "border-radius: 3px; color: #999; background: transparent; }"
             "QPushButton:hover { color: #d83a3a; border-color: #d83a3a; }"
         )
@@ -404,7 +404,7 @@ class GraphicalTradingWidget(QWidget):
             "QPushButton { background: #d83a3a; color: white; font-weight: bold; "
             "padding: 6px 24px; border-radius: 4px; font-size: 14px; }"
             "QPushButton:hover { background: #c13030; }"
-            "QPushButton:disabled { background: #ccc; }"
+            "QPushButton:disabled { background: #555; }"
         )
         self.scan_btn.clicked.connect(self._start_scan)
         action_bar.addWidget(self.scan_btn)
@@ -443,8 +443,8 @@ class GraphicalTradingWidget(QWidget):
         log_header.addWidget(QLabel("运行日志:"))
         clear_log_btn = QPushButton("清空")
         clear_log_btn.setStyleSheet(
-            "QPushButton { padding: 2px 8px; border: 1px solid #ddd; border-radius: 2px; color: #888; }"
-            "QPushButton:hover { color: #333; border-color: #999; }"
+            "QPushButton { padding: 2px 8px; border: 1px solid #3a3a3a; border-radius: 2px; color: #888; }"
+            "QPushButton:hover { color: #ccc; border-color: #999; }"
         )
         log_header.addWidget(clear_log_btn)
         log_header.addStretch()
